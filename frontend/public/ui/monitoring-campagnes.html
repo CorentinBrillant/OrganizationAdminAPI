@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitoring des campagnes</title>
+  <style>
+    :root {
+      --bg: oklch(98% 0.005 250);
+      --surface: oklch(100% 0 0);
+      --surface-2: color-mix(in oklch, var(--surface) 90%, var(--bg));
+      --fg: oklch(22% 0.02 240);
+      --muted: oklch(50% 0.018 240);
+      --border: oklch(90% 0.008 240);
+      --accent: oklch(58% 0.16 145);
+      --success: oklch(64% 0.16 145);
+      --warn: oklch(74% 0.16 78);
+      --danger: oklch(63% 0.2 28);
+      --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { color-scheme: light; }
+    body { margin: 0; font-family: var(--font-body); background: var(--bg); color: var(--fg); text-wrap: pretty; overflow-x: hidden; }
+    .layout { min-height: 100svh; display: grid; grid-template-columns: 300px minmax(0, 1fr); width: 100%; max-width: 100%; }
+    .sidebar { position: sticky; top: 0; height: 100svh; overflow-y: auto; border-right: 1px solid var(--border); background: color-mix(in oklch, var(--surface) 94%, var(--accent)); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+    .sidebar-main { display: grid; align-content: start; gap: 12px; }
+    .brand { font-weight: 700; letter-spacing: 0.02em; }
+    .brand small { display: block; margin-top: 4px; color: var(--muted); font-size: .8rem; font-weight: 500; }
+    .nav { display: grid; gap: 8px; }
+    .nav a { text-decoration: none; color: var(--fg); border: 1px solid transparent; border-radius: 10px; padding: 10px 11px; font-size: .92rem; background: transparent; transition: background-color 140ms cubic-bezier(0.23, 1, 0.32, 1), border-color 140ms cubic-bezier(0.23, 1, 0.32, 1), transform 140ms cubic-bezier(0.23, 1, 0.32, 1); }
+    .nav a:hover { background: color-mix(in oklch, var(--surface) 92%, var(--accent)); }
+    .nav a.active { border-color: var(--border); background: color-mix(in oklch, var(--surface) 95%, var(--accent)); font-weight: 600; }
+    .campaign-switch { display: grid; gap: 6px; margin-top: 10px; margin-bottom: 8px; }
+    .campaign-switch label { font-size: .76rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .campaign-select { border: 1px solid var(--border); border-radius: 10px; padding: 9px 34px 9px 12px; min-height: 40px; font: inherit; background: var(--surface); color: var(--fg); appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 12px) calc(50% - 3px); background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; }
+    .campaign-actions { display: flex; gap: 6px; }
+    .campaign-actions .btn { width: 100%; }
+    .panel-title { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+    .source-config, .identity-panel, .sidebar-health { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 11px; display: grid; gap: 8px; }
+    .source-config input { width: 100%; }
+    .source-row { display: flex; gap: 6px; align-items: center; }
+    .micro { font-size: .78rem; color: var(--muted); }
+    .btn { border: 1px solid var(--border); border-radius: 10px; background: color-mix(in oklch, var(--accent) 16%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; padding: 9px 12px; cursor: pointer; transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 140ms cubic-bezier(0.23, 1, 0.32, 1), border-color 140ms cubic-bezier(0.23, 1, 0.32, 1), opacity 140ms cubic-bezier(0.23, 1, 0.32, 1); }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .6; cursor: wait; transform: none; }
+    .btn.subtle { background: var(--surface); color: var(--fg); }
+    .identity { font-size: .82rem; color: var(--muted); }
+    .identity strong { color: var(--fg); display: block; }
+    .sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+    .sidebar-footer .btn { width: 100%; }
+    .sidebar-health strong { font-family: var(--font-mono); font-size: .95rem; font-variant-numeric: tabular-nums; }
+    .sidebar-health-grid { display: grid; gap: 8px; }
+    .sidebar-health-item { border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; background: var(--surface-2); }
+    main { padding: 24px; display: grid; gap: 16px; min-width: 0; }
+    .hero, .panel, .kpi, .timeline-card, .health-card, .feed-card { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+    .hero { padding: 20px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .9fr); gap: 18px; align-items: start; }
+    .hero-copy .eyebrow { margin: 0 0 8px; font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+    .hero h1 { margin: 0; font-size: clamp(2rem, 2.8vw, 2.8rem); line-height: 1.05; letter-spacing: -0.025em; }
+    .hero p { margin: 8px 0 0; max-width: 62ch; color: var(--muted); font-size: 1rem; line-height: 1.55; }
+    .hero-meta { display: grid; gap: 10px; justify-items: stretch; }
+    .hero-chip { border: 1px solid var(--border); border-radius: 999px; padding: 8px 12px; font-size: .76rem; letter-spacing: .08em; text-transform: uppercase; background: var(--surface-2); }
+    .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; }
+    .hero-actions .btn { flex: 1 1 180px; }
+    .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .kpi { padding: 14px; }
+    .kpi .label { font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .kpi .value { margin-top: 6px; font-family: var(--font-mono); font-size: 1.55rem; font-variant-numeric: tabular-nums; }
+    .health-grid { display: grid; grid-template-columns: 1.2fr .9fr; gap: 12px; }
+    .health-card, .feed-card { padding: 16px; display: grid; gap: 12px; }
+    .health-head, .feed-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+    .health-head h2, .feed-head h2 { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
+    .health-head p, .feed-head p { margin: 4px 0 0; color: var(--muted); font-size: .9rem; }
+    .health-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .health-metric { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--surface-2); }
+    .health-metric span { display: block; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .health-metric strong { display: block; margin-top: 7px; font-family: var(--font-mono); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    .health-note { margin: 0; color: var(--muted); font-size: .9rem; }
+    .feed-list { display: grid; gap: 8px; }
+    .feed-item { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--surface-2); }
+    .feed-item strong { display: block; }
+    .feed-item p { margin: 4px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+    .timeline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .timeline-card { padding: 14px; display: grid; gap: 8px; }
+    .timeline-card h2 { margin: 0; font-size: .98rem; letter-spacing: -0.01em; }
+    .timeline-card p { margin: 0; color: var(--muted); font-size: .88rem; }
+    .timeline-card strong { font-family: var(--font-mono); font-size: 1rem; }
+    .panel-head { padding: 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .panel-head h2 { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
+    .panel-head p { margin: 0; color: var(--muted); font-size: .86rem; }
+    .panel-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .table-wrap { overflow-x: hidden; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { border-bottom: 1px solid var(--border); text-align: left; padding: 11px 12px; white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+    th { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    tbody tr:hover { background: color-mix(in oklch, var(--surface) 93%, var(--accent)); }
+    tbody tr.is-active { background: color-mix(in oklch, var(--surface) 91%, var(--accent)); }
+    .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: .76rem; }
+    .status-pill.ok { color: color-mix(in oklch, var(--success) 70%, black); }
+    .status-pill.warn { color: color-mix(in oklch, var(--warn) 65%, black); }
+    .status-pill.danger { color: color-mix(in oklch, var(--danger) 62%, black); }
+    .muted { color: var(--muted); }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .actions a { text-decoration: none; }
+    .inline-status { min-height: 1.2rem; font-size: .82rem; color: var(--muted); }
+    .table-empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    :focus-visible { outline: 2px solid color-mix(in oklch, var(--accent) 48%, white); outline-offset: 2px; }
+    html[data-theme="dark"], body[data-theme="dark"] {
+      --bg: oklch(17% 0.01 255);
+      --surface: oklch(22% 0.01 255);
+      --surface-2: color-mix(in oklch, var(--surface) 92%, black);
+      --fg: oklch(95% 0.01 255);
+      --muted: oklch(76% 0.01 255);
+      --border: oklch(36% 0.01 255);
+      --accent: oklch(70% 0.14 150);
+    }
+    @media (max-width: 1180px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); }
+      .hero { grid-template-columns: 1fr; }
+      .row, .timeline, .health-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .health-grid { grid-template-columns: 1fr; }
+      .hero-meta { justify-items: start; }
+    }
+    @media (max-width: 760px) {
+      main { padding: 16px; }
+      .row, .timeline, .health-metrics { grid-template-columns: 1fr; }
+      .hero-actions .btn, .panel-actions > * { width: 100%; }
+    }
+    html[data-embedded="1"] .layout { grid-template-columns: minmax(0, 1fr) !important; }
+    html[data-embedded="1"] .sidebar { display: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+    }
+  </style>
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem('ffck:theme') || 'dark';
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.dataset.embedded = '1';
+    }
+  </script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-main">
+        <div class="brand">Suivi FFCK<small>Pilotage des inscriptions multi-source</small></div>
+        <nav class="nav" aria-label="Navigation">
+          <a href="dashboard-fusion.html">Inscriptions</a>
+          <a href="source-helloasso.html">Source HelloAsso</a>
+          <a href="source-ffck.html">Source FFCK</a>
+          <a href="dedoublonnage-members.html">Dédoublonnage</a>
+          <a class="active" aria-current="page" href="monitoring-campagnes.html">Monitoring des campagnes</a>
+        </nav>
+        <div class="campaign-switch">
+          <label for="campaignSelect">Campagne active</label>
+          <select id="campaignSelect" class="campaign-select" aria-label="Choisir la campagne active">
+            <option value="">Aucune campagne</option>
+          </select>
+          <div class="campaign-actions">
+            <button id="addCampaign" class="btn subtle" type="button">Nouvelle campagne</button>
+          </div>
+        </div>
+        <section class="identity-panel" aria-label="Préférences utilisateur">
+          <div class="identity" id="userIdentity" aria-live="polite"></div>
+          <button id="toggleTheme" class="btn subtle" type="button">Activer le mode clair</button>
+        </section>
+      </div>
+      <div class="sidebar-footer">
+        <section class="source-config" aria-label="Configuration des sources">
+          <div class="panel-title">Configuration des sources</div>
+          <label class="micro" for="helloAssoApiKey">Clé API HelloAsso</label>
+          <input id="helloAssoApiKey" type="password" placeholder="ha_live_..." autocomplete="off" />
+          <div class="source-row">
+            <button id="saveApiKey" class="btn subtle" type="button">Enregistrer</button>
+            <span id="apiKeyStatus" class="micro" aria-live="polite"></span>
+          </div>
+        </section>
+        <button id="authAction" class="btn subtle" type="button">Se déconnecter</button>
+      </div>
+    </aside>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Vue transverse</p>
+          <h1>Monitoring des campagnes</h1>
+          <p>Vue transverse pour suivre la santé des campagnes, la fraîcheur des sources et les points bloquants avant la prochaine fusion. Cette page sert de tour de contrôle pour le bureau directeur.</p>
+        </div>
+        <div class="hero-meta">
+          <span id="heroCampaign" class="hero-chip">Campagne active —</span>
+          <div class="hero-actions">
+            <button id="refreshMonitoring" class="btn" type="button">Actualiser le monitoring</button>
+          </div>
+          <div id="refreshStatus" class="inline-status" aria-live="polite">Dernière vue stabilisée.</div>
+        </div>
+      </section>
+
+      <section class="row" aria-label="Indicateurs globaux">
+        <article class="kpi">
+          <div class="label">Campagnes ouvertes</div>
+          <div id="kpiOpen" class="value">0</div>
+        </article>
+        <article class="kpi">
+          <div class="label">Campagnes stables</div>
+          <div id="kpiStable" class="value">0</div>
+        </article>
+        <article class="kpi">
+          <div class="label">Campagnes à contrôler</div>
+          <div id="kpiReview" class="value">0</div>
+        </article>
+        <article class="kpi">
+          <div class="label">Campagnes bloquées</div>
+          <div id="kpiBlocked" class="value">0</div>
+        </article>
+      </section>
+
+      <section class="health-grid" aria-label="Santé opérationnelle">
+        <article class="health-card">
+          <div class="health-head">
+            <div>
+              <h2>État opérationnel de la campagne active</h2>
+              <p>Lecture rapide de la campagne sélectionnée, avec les volumes réellement exploitables et le prochain point d’attention.</p>
+            </div>
+            <span id="campaignStatusPill" class="status-pill warn">À contrôler</span>
+          </div>
+          <div class="health-metrics">
+            <div class="health-metric">
+              <span>Dossiers complets</span>
+              <strong id="healthCompleted">0</strong>
+            </div>
+            <div class="health-metric">
+              <span>Anomalies ouvertes</span>
+              <strong id="healthAnomalies">0</strong>
+            </div>
+            <div class="health-metric">
+              <span>Prochaine action</span>
+              <strong id="healthAction">—</strong>
+            </div>
+          </div>
+          <p id="healthNote" class="health-note">—</p>
+        </article>
+
+        <article class="feed-card">
+          <div class="feed-head">
+            <div>
+              <h2>Alertes à traiter</h2>
+              <p>Les points qui empêchent une campagne d’être considérée comme stable.</p>
+            </div>
+          </div>
+          <div id="alertFeed" class="feed-list" aria-live="polite"></div>
+        </article>
+      </section>
+
+      <section class="timeline" aria-label="Dernières opérations">
+        <article class="timeline-card">
+          <h2>Dernière fusion</h2>
+          <strong id="lastFusionCard">—</strong>
+          <p id="lastFusionState">Aucune donnée disponible.</p>
+        </article>
+        <article class="timeline-card">
+          <h2>Dernière synchro HelloAsso</h2>
+          <strong id="lastHelloAssoCard">—</strong>
+          <p id="lastHelloAssoState">Aucune donnée disponible.</p>
+        </article>
+        <article class="timeline-card">
+          <h2>Dernier import FFCK</h2>
+          <strong id="lastFfckCard">—</strong>
+          <p id="lastFfckState">Aucune donnée disponible.</p>
+        </article>
+      </section>
+
+      <section class="panel" aria-label="Tableau de monitoring">
+        <div class="panel-head">
+          <div>
+            <h2>État des campagnes</h2>
+            <p>Le monitoring est centralisé ici. La sidebar garde la navigation, la campagne active, le thème et la configuration des sources.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn subtle" type="button" data-app-route="dashboard">Voir la fusion</button>
+            <button class="btn subtle" type="button" data-app-route="helloasso">Voir HelloAsso</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Table de synthèse des campagnes d’inscription</caption>
+            <thead>
+              <tr>
+                <th>Campagne</th>
+                <th>Statut global</th>
+                <th>Dernière fusion</th>
+                <th>HelloAsso</th>
+                <th>Import FFCK</th>
+                <th>Dossiers complets</th>
+                <th>Anomalies</th>
+                <th>État</th>
+                <th>Accès</th>
+              </tr>
+            </thead>
+            <tbody id="monitoringRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const CAMPAIGN_STORE_KEY = 'ffck:campaign';
+    const CAMPAIGN_LIST_STORE_KEY = 'ffck:campaign:list';
+    const THEME_STORE_KEY = 'ffck:theme';
+    const USER_STORE_KEY = 'ffck:user';
+    const API_KEY_STORE_KEY = 'ffck:source:helloasso:apiKey';
+    
+    const dashboardCampaigns = {};
+
+    const helloAssoCampaigns = {};
+
+    const ffckCampaigns = {};
+
+    const campaignSelect = document.getElementById('campaignSelect');
+    const addCampaign = document.getElementById('addCampaign');
+    const toggleTheme = document.getElementById('toggleTheme');
+    const userIdentity = document.getElementById('userIdentity');
+    const authAction = document.getElementById('authAction');
+    const helloAssoApiKey = document.getElementById('helloAssoApiKey');
+    const saveApiKey = document.getElementById('saveApiKey');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
+    const heroCampaign = document.getElementById('heroCampaign');
+    const heroTheme = document.getElementById('heroTheme');
+    const refreshStatus = document.getElementById('refreshStatus');
+    const kpiOpen = document.getElementById('kpiOpen');
+    const kpiStable = document.getElementById('kpiStable');
+    const kpiReview = document.getElementById('kpiReview');
+    const kpiBlocked = document.getElementById('kpiBlocked');
+    const campaignStatusPill = document.getElementById('campaignStatusPill');
+    const healthCompleted = document.getElementById('healthCompleted');
+    const healthAnomalies = document.getElementById('healthAnomalies');
+    const healthAction = document.getElementById('healthAction');
+    const healthNote = document.getElementById('healthNote');
+    const alertFeed = document.getElementById('alertFeed');
+    const lastFusionCard = document.getElementById('lastFusionCard');
+    const lastFusionState = document.getElementById('lastFusionState');
+    const lastHelloAssoCard = document.getElementById('lastHelloAssoCard');
+    const lastHelloAssoState = document.getElementById('lastHelloAssoState');
+    const lastFfckCard = document.getElementById('lastFfckCard');
+    const lastFfckState = document.getElementById('lastFfckState');
+    const monitoringRows = document.getElementById('monitoringRows');
+    const refreshMonitoring = document.getElementById('refreshMonitoring');
+
+    let activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || '';
+    let campaignOptions = [];
+    let isRefreshing = false;
+
+    function formatCampaignLabel(name) {
+      return /^\d{4}$/.test(name) ? `Campagne ${name}` : name;
+    }
+
+    function formatDate(date) {
+      return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+    }
+
+    function createCampaignFromTemplate(name) {
+      dashboardCampaigns[name] = {
+        merged: 0,
+        exact: 0,
+        critical: 0,
+        minor: 0,
+        lastFusionAt: null,
+      };
+      helloAssoCampaigns[name] = {
+        syncLabel: '—',
+        rows: 0,
+        anomalies: 0,
+      };
+      ffckCampaigns[name] = {
+        importLabel: '—',
+        rows: 0,
+        anomalies: 0,
+      };
+    }
+
+    function loadCampaignOptions() {
+      const stored = JSON.parse(localStorage.getItem(CAMPAIGN_LIST_STORE_KEY) || 'null');
+      campaignOptions = Array.isArray(stored) && stored.length > 0 ? stored.map((value) => String(value)) : [];
+      campaignOptions.forEach((name) => {
+        if (!dashboardCampaigns[name]) createCampaignFromTemplate(name);
+      });
+      localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+    }
+
+    function renderCampaignOptions() {
+      if (!Array.isArray(campaignOptions) || campaignOptions.length === 0) {
+        activeCampaign = '';
+        campaignSelect.disabled = true;
+        campaignSelect.innerHTML = '<option value="">Aucune campagne</option>';
+        campaignSelect.value = '';
+        return;
+      }
+      campaignSelect.disabled = false;
+      campaignSelect.innerHTML = campaignOptions
+        .map((name) => `<option value="${name}">${formatCampaignLabel(name)}</option>`)
+        .join('');
+      if (!dashboardCampaigns[activeCampaign]) activeCampaign = campaignOptions[campaignOptions.length - 1] || '';
+      campaignSelect.value = activeCampaign;
+    }
+
+    function parseUser() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(USER_STORE_KEY) || 'null');
+        if (parsed && parsed.name) return parsed;
+      } catch (_) {}
+      return null;
+    }
+
+    function ensureDefaultUser() {
+      if (!parseUser()) {
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: 'Utilisateur bureau directeur', role: 'Bureau directeur' }));
+      }
+    }
+
+    function renderUserIdentity() {
+      const user = parseUser();
+      if (user) {
+        userIdentity.innerHTML = `<strong>${user.name}</strong><span>${user.role || 'Connecté'}</span>`;
+        authAction.textContent = 'Se déconnecter';
+      } else {
+        userIdentity.textContent = 'Aucun utilisateur connecté';
+        authAction.textContent = 'Se connecter';
+      }
+    }
+
+    function applyTheme() {
+      const savedTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark';
+      const nextTheme = savedTheme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = nextTheme;
+      document.body.dataset.theme = nextTheme;
+      document.documentElement.style.colorScheme = nextTheme;
+      toggleTheme.textContent = nextTheme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre';
+    }
+
+    function maskApiKey(value) {
+      if (!value) return '';
+      if (value.length <= 6) return '••••••';
+      return `${value.slice(0, 3)}••••${value.slice(-3)}`;
+    }
+
+    function renderApiKeyState() {
+      const key = localStorage.getItem(API_KEY_STORE_KEY) || '';
+      helloAssoApiKey.value = key;
+      apiKeyStatus.textContent = key ? `Clé enregistrée (${maskApiKey(key)})` : 'Aucune clé enregistrée';
+    }
+
+    function computeStatus(name) {
+      const fusion = dashboardCampaigns[name];
+      const helloAsso = helloAssoCampaigns[name];
+      const ffck = ffckCampaigns[name];
+      if (!fusion || !helloAsso || !ffck) {
+        return {
+          status: '—',
+          statusClass: 'warn',
+          state: name === activeCampaign ? 'Campagne active' : 'Campagne ouverte',
+          completed: 0,
+          anomalies: 0,
+          lastFusion: '—',
+          lastHelloAsso: '—',
+          lastFfck: '—',
+        };
+      }
+      const blocked = fusion.critical > 0;
+      const review = helloAsso.anomalies > 0 || ffck.anomalies > 0 || fusion.minor > 0;
+      const status = blocked ? 'Bloquée' : review ? 'À contrôler' : 'Stable';
+      const statusClass = blocked ? 'danger' : review ? 'warn' : 'ok';
+      const state = name === activeCampaign ? 'Campagne active' : 'Campagne ouverte';
+      const completed = fusion.exact;
+      const anomalies = fusion.critical + fusion.minor;
+      return {
+        status,
+        statusClass,
+        state,
+        completed,
+        anomalies,
+        lastFusion: fusion.lastFusionAt ? formatDate(fusion.lastFusionAt) : '—',
+        lastHelloAsso: helloAsso.syncLabel,
+        lastFfck: ffck.importLabel
+      };
+    }
+
+    function getActionLabel(status) {
+      if (status.status === 'Bloquée') return 'Corriger les blocages';
+      if (status.status === 'À contrôler') return 'Revoir les écarts';
+      return 'Lancer la consolidation';
+    }
+
+    function buildAlertItems(status) {
+      const items = [];
+      const apiKeyMissing = !localStorage.getItem(API_KEY_STORE_KEY);
+      if (apiKeyMissing) {
+        items.push({
+          title: 'Clé API HelloAsso manquante',
+          body: 'La source distante ne pourra pas être rafraîchie tant que la clé n’est pas enregistrée dans la sidebar.',
+          level: 'danger'
+        });
+      }
+      if (status.status === 'Bloquée') {
+        items.push({
+          title: 'Fusion partiellement bloquée',
+          body: `${status.anomalies} anomalie(s) restent ouvertes sur ${formatCampaignLabel(activeCampaign)}.`,
+          level: 'danger'
+        });
+      }
+      if (helloAssoCampaigns[activeCampaign].syncLabel === '—') {
+        items.push({
+          title: 'Synchronisation HelloAsso absente',
+          body: 'Aucune date de synchronisation n’est disponible pour la campagne active.',
+          level: 'warn'
+        });
+      }
+      if (ffckCampaigns[activeCampaign].importLabel === '—') {
+        items.push({
+          title: 'Import FFCK non chargé',
+          body: 'L’export fédéral n’a pas encore été importé pour cette campagne.',
+          level: 'warn'
+        });
+      }
+      if (items.length === 0) {
+        items.push({
+          title: 'Alerte maîtrisée',
+          body: 'Les sources et la consolidation sont à jour. La campagne peut être revue sans action corrective immédiate.',
+          level: 'ok'
+        });
+      }
+      return items.slice(0, 3);
+    }
+
+    function renderHero() {
+      if (!activeCampaign || !dashboardCampaigns[activeCampaign]) {
+        heroCampaign.textContent = 'Campagne active —';
+        lastFusionCard.textContent = '—';
+        lastFusionState.textContent = 'Aucune donnée disponible.';
+        lastHelloAssoCard.textContent = '—';
+        lastHelloAssoState.textContent = 'Aucune donnée disponible.';
+        lastFfckCard.textContent = '—';
+        lastFfckState.textContent = 'Aucune donnée disponible.';
+        return;
+      }
+      const status = computeStatus(activeCampaign);
+      heroCampaign.textContent = `${formatCampaignLabel(activeCampaign)} · ${status.status}`;
+      lastFusionCard.textContent = status.lastFusion;
+      lastFusionState.textContent = `${status.anomalies} anomalie(s) encore ouvertes après la dernière consolidation.`;
+      lastHelloAssoCard.textContent = status.lastHelloAsso;
+      lastHelloAssoState.textContent = `${helloAssoCampaigns[activeCampaign].rows} transactions observées, ${helloAssoCampaigns[activeCampaign].anomalies} en contrôle.`;
+      lastFfckCard.textContent = status.lastFfck;
+      lastFfckState.textContent = `${ffckCampaigns[activeCampaign].rows} lignes importées, ${ffckCampaigns[activeCampaign].anomalies} en attente.`;
+    }
+
+    function renderHealthState() {
+      if (!activeCampaign || !dashboardCampaigns[activeCampaign]) {
+        campaignStatusPill.className = 'status-pill warn';
+        campaignStatusPill.textContent = '—';
+        healthCompleted.textContent = '0';
+        healthAnomalies.textContent = '0';
+        healthAction.textContent = '—';
+        healthNote.textContent = 'Aucune campagne sélectionnée.';
+        return;
+      }
+      const status = computeStatus(activeCampaign);
+      campaignStatusPill.className = `status-pill ${status.statusClass}`;
+      campaignStatusPill.textContent = status.status;
+      healthCompleted.textContent = String(status.completed);
+      healthAnomalies.textContent = String(status.anomalies);
+      healthAction.textContent = getActionLabel(status);
+      healthNote.textContent = status.status === 'Stable'
+        ? 'La campagne active est exploitable. Le prochain geste utile consiste à lancer une consolidation de confirmation.'
+        : status.status === 'À contrôler'
+          ? 'La campagne reste exploitable, mais une revue métier est nécessaire avant validation définitive.'
+          : 'Des anomalies bloquantes subsistent. Priorité : corriger les écarts FFCK ou les absences de rapprochement.';
+    }
+
+    function renderAlertFeed() {
+      if (!activeCampaign || !dashboardCampaigns[activeCampaign]) {
+        alertFeed.innerHTML = '';
+        return;
+      }
+      const status = computeStatus(activeCampaign);
+      const alerts = buildAlertItems(status);
+      alertFeed.innerHTML = alerts.map((item) => `
+        <article class="feed-item">
+          <span class="status-pill ${item.level}">${item.level === 'ok' ? 'Stable' : item.level === 'warn' ? 'À contrôler' : 'Bloquant'}</span>
+          <strong>${item.title}</strong>
+          <p>${item.body}</p>
+        </article>
+      `).join('');
+    }
+
+    function renderKpis() {
+      const statuses = campaignOptions.map((name) => computeStatus(name));
+      kpiOpen.textContent = String(statuses.length);
+      kpiStable.textContent = String(statuses.filter((item) => item.status === 'Stable').length);
+      kpiReview.textContent = String(statuses.filter((item) => item.status === 'À contrôler').length);
+      kpiBlocked.textContent = String(statuses.filter((item) => item.status === 'Bloquée').length);
+    }
+
+    function renderMonitoringTable() {
+      if (campaignOptions.length === 0) {
+        monitoringRows.innerHTML = '<tr><td class="table-empty" colspan="9">Aucune campagne n’est encore configurée. Ajoute une campagne depuis la sidebar pour démarrer le suivi.</td></tr>';
+        return;
+      }
+
+      monitoringRows.innerHTML = campaignOptions.map((name) => {
+        const status = computeStatus(name);
+        return `
+          <tr class="${name === activeCampaign ? 'is-active' : ''}">
+            <td><strong>${formatCampaignLabel(name)}</strong></td>
+            <td><span class="status-pill ${status.statusClass}">${status.status}</span></td>
+            <td>${status.lastFusion}</td>
+            <td>${status.lastHelloAsso}</td>
+            <td>${status.lastFfck}</td>
+            <td>${status.completed}</td>
+            <td>${status.anomalies}</td>
+            <td class="muted">${status.state}</td>
+            <td>
+              <div class="actions">
+                <button class="btn subtle" type="button" data-app-route="dashboard">Fusion</button>
+                <button class="btn subtle" type="button" data-app-route="helloasso">HelloAsso</button>
+                <button class="btn subtle" type="button" data-app-route="ffck">FFCK</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderAll() {
+      renderCampaignOptions();
+      renderUserIdentity();
+      renderApiKeyState();
+      applyTheme();
+      renderHero();
+      renderKpis();
+      renderHealthState();
+      renderAlertFeed();
+      renderMonitoringTable();
+    }
+
+    campaignSelect.addEventListener('change', () => {
+      activeCampaign = campaignSelect.value;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      renderAll();
+    });
+
+    addCampaign.addEventListener('click', () => {
+      const name = window.prompt('Nom de la nouvelle campagne ?', `Campagne ${new Date().getFullYear() + 1}`);
+      if (!name) return;
+      const normalized = name.trim().replace(/\s+/g, ' ');
+      if (!normalized) return;
+      const existing = campaignOptions.find((value) => value.toLowerCase() === normalized.toLowerCase());
+      const campaignKey = existing || normalized;
+      if (!existing) {
+        campaignOptions.push(campaignKey);
+        createCampaignFromTemplate(campaignKey);
+        localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+      }
+      activeCampaign = campaignKey;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      renderAll();
+    });
+
+    saveApiKey.addEventListener('click', () => {
+      const key = helloAssoApiKey.value.trim();
+      if (!key) localStorage.removeItem(API_KEY_STORE_KEY);
+      else localStorage.setItem(API_KEY_STORE_KEY, key);
+      renderApiKeyState();
+    });
+
+    toggleTheme.addEventListener('click', () => {
+      const isDark = (document.body.dataset.theme || document.documentElement.dataset.theme) === 'dark';
+      localStorage.setItem(THEME_STORE_KEY, isDark ? 'light' : 'dark');
+      applyTheme();
+      refreshStatus.textContent = (isDark ? 'Mode clair' : 'Mode sombre') + ' partagé appliqué à toute l’interface.';
+    });
+
+    authAction.addEventListener('click', () => {
+      const current = parseUser();
+      if (current) {
+        localStorage.removeItem(USER_STORE_KEY);
+      } else {
+        const name = window.prompt('Nom de l’utilisateur à connecter ?', 'Utilisateur bureau directeur');
+        if (!name) return;
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: name.trim(), role: 'Bureau directeur' }));
+      }
+      renderUserIdentity();
+    });
+
+    refreshMonitoring.addEventListener('click', () => {
+      if (isRefreshing || !activeCampaign || !dashboardCampaigns[activeCampaign]) return;
+      isRefreshing = true;
+      refreshMonitoring.disabled = true;
+      refreshMonitoring.textContent = 'Actualisation...';
+      refreshStatus.textContent = 'Lecture des sources et recalcul des indicateurs en cours...';
+
+      window.setTimeout(() => {
+        dashboardCampaigns[activeCampaign].lastFusionAt = new Date();
+        if (helloAssoCampaigns[activeCampaign]) helloAssoCampaigns[activeCampaign].syncLabel = formatDate(new Date());
+        if (ffckCampaigns[activeCampaign]) ffckCampaigns[activeCampaign].importLabel = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short' }).format(new Date());
+        isRefreshing = false;
+        refreshMonitoring.disabled = false;
+        refreshMonitoring.textContent = 'Actualiser le monitoring';
+        refreshStatus.textContent = `Monitoring actualisé pour ${formatCampaignLabel(activeCampaign)}.`;
+        renderAll();
+      }, 900);
+    });
+
+    window.addEventListener('storage', (event) => {
+      if (!event.key || event.key === CAMPAIGN_LIST_STORE_KEY) loadCampaignOptions();
+      if (!event.key || event.key === CAMPAIGN_STORE_KEY) {
+        activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || activeCampaign;
+      }
+      if (!event.key || event.key === THEME_STORE_KEY || event.key === USER_STORE_KEY || event.key === API_KEY_STORE_KEY || event.key === CAMPAIGN_LIST_STORE_KEY || event.key === CAMPAIGN_STORE_KEY) {
+        renderAll();
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-app-route]');
+      if (!target) return;
+      const page = target.getAttribute('data-app-route');
+      if (!page) return;
+      if (document.documentElement.dataset.embedded === '1' && window.parent && window.parent !== window) {
+        event.preventDefault();
+        window.parent.postMessage({ type: 'ffck:navigate', page }, window.location.origin);
+      }
+    });
+
+    loadCampaignOptions();
+    ensureDefaultUser();
+    renderAll();
+  </script>
+</body>
+</html>

@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dedoublonnage des membres</title>
+  <style>
+    :root {
+      --bg: #f4f8f6;
+      --surface: #ffffff;
+      --text: #1d2d2a;
+      --muted: #5f7370;
+      --border: #d5e3de;
+      --accent: #1f7a5a;
+      --accent-soft: #e6f4ee;
+      --danger: #a33b2c;
+      --radius: 12px;
+      --shadow: 0 10px 26px rgba(26, 63, 50, 0.12);
+      --bg-grad-start: #eef7f2;
+      --bg-grad-mid: #f8fbfa;
+      --bg-grad-end: #e9f2ee;
+      --table-bg: #ffffff;
+      --table-head-bg: #f8fbfa;
+      --tag-bg: #eff8f4;
+      --tag-border: #c6ddd4;
+      --tag-text: #2a5d4a;
+      --danger-bg: #faefed;
+      --danger-border: #e8c8c1;
+    }
+    html[data-theme="dark"], body[data-theme="dark"] {
+      --bg: oklch(17% 0.01 255);
+      --surface: oklch(22% 0.01 255);
+      --text: oklch(95% 0.01 255);
+      --muted: oklch(76% 0.01 255);
+      --border: oklch(36% 0.01 255);
+      --accent: oklch(70% 0.14 150);
+      --accent-soft: color-mix(in oklch, var(--surface) 92%, var(--accent));
+      --danger: oklch(72% 0.15 28);
+      --shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+      --bg-grad-start: oklch(17% 0.01 255);
+      --bg-grad-mid: oklch(19% 0.012 255);
+      --bg-grad-end: oklch(16% 0.01 255);
+      --table-bg: oklch(23% 0.012 255);
+      --table-head-bg: oklch(26% 0.012 255);
+      --tag-bg: color-mix(in oklch, var(--surface) 88%, var(--accent));
+      --tag-border: color-mix(in oklch, var(--border) 70%, var(--accent));
+      --tag-text: oklch(90% 0.03 150);
+      --danger-bg: color-mix(in oklch, var(--surface) 84%, var(--danger));
+      --danger-border: color-mix(in oklch, var(--border) 60%, var(--danger));
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--text);
+      background: linear-gradient(160deg, var(--bg-grad-start) 0%, var(--bg-grad-mid) 45%, var(--bg-grad-end) 100%);
+    }
+    .layout {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 22px;
+      display: grid;
+      gap: 16px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .top {
+      display: grid;
+      gap: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.3rem;
+    }
+    .hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .controls label {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+    .controls input {
+      width: 86px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+    button {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 9px 12px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.ghost {
+      background: var(--accent-soft);
+      border-color: #b8d7ca;
+      color: #144b36;
+    }
+    button.danger {
+      background: var(--danger-bg);
+      border-color: var(--danger-border);
+      color: var(--danger);
+    }
+    button:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 0.87rem;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+      background: var(--table-bg);
+    }
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.9rem;
+    }
+    th {
+      font-size: 0.78rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: var(--table-head-bg);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .score {
+      font-weight: 700;
+      color: #1b5e46;
+    }
+    .person {
+      display: grid;
+      gap: 3px;
+    }
+    .person strong {
+      font-size: 0.95rem;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 0.83rem;
+    }
+    .reasons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tag {
+      border: 1px solid var(--tag-border);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.78rem;
+      color: var(--tag-text);
+      background: var(--tag-bg);
+      white-space: nowrap;
+    }
+    .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 22px;
+    }
+    @media (max-width: 860px) {
+      .layout { padding: 12px; }
+      .status { width: 100%; margin-left: 0; }
+    }
+  </style>
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem('ffck:theme') || 'dark';
+    document.body && (document.body.dataset.theme = document.documentElement.dataset.theme);
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.dataset.embedded = '1';
+    }
+  </script>
+</head>
+<body>
+  <main class="layout">
+    <section class="card top">
+      <h1>Dedoublonnage des membres</h1>
+      <p class="hint" id="campaignInfo">Campagne active: aucune</p>
+      <div class="controls">
+        <label for="minScore">Score minimum (0.0-1.0)</label>
+        <input id="minScore" type="number" min="0" max="1" step="0.01" value="0.80" />
+        <button id="refreshSuggestions" class="primary" type="button">Analyser les doublons</button>
+        <button id="reloadList" class="ghost" type="button">Recharger la liste</button>
+        <span id="status" class="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Score</th>
+              <th>Membre A</th>
+              <th>Membre B</th>
+              <th>Raisons</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const THEME_STORE_KEY = 'ffck:theme';
+    const params = new URLSearchParams(window.location.search);
+    const embedded = params.get('embedded') === '1';
+    if (embedded) document.documentElement.setAttribute('data-embedded', '1');
+
+    function applyTheme(themeValue) {
+      const nextTheme = themeValue === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = nextTheme;
+      document.body.dataset.theme = nextTheme;
+      document.documentElement.style.colorScheme = nextTheme;
+      document.body.style.colorScheme = nextTheme;
+    }
+
+    applyTheme(localStorage.getItem(THEME_STORE_KEY) || 'dark');
+    window.addEventListener('storage', (event) => {
+      if (event.key && event.key !== THEME_STORE_KEY) return;
+      applyTheme(localStorage.getItem(THEME_STORE_KEY) || 'dark');
+    });
+
+    const campaignInfo = document.getElementById('campaignInfo');
+    const minScoreInput = document.getElementById('minScore');
+    const refreshSuggestions = document.getElementById('refreshSuggestions');
+    const reloadList = document.getElementById('reloadList');
+    const statusEl = document.getElementById('status');
+    const rowsEl = document.getElementById('rows');
+
+    let activeCampaignId = null;
+    let activeCampaignTitle = '';
+    let currentSuggestions = [];
+
+    function getCookie(name) {
+      const cookie = document.cookie || '';
+      const parts = cookie.split(';').map((part) => part.trim());
+      const prefix = name + '=';
+      for (const part of parts) {
+        if (part.startsWith(prefix)) return decodeURIComponent(part.slice(prefix.length));
+      }
+      return '';
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message || '';
+    }
+
+    function formatReasons(reasons) {
+      if (!Array.isArray(reasons) || reasons.length === 0) return '<span class="tag">similaire</span>';
+      return reasons.map((reason) => '<span class="tag">' + String(reason) + '</span>').join('');
+    }
+
+    function renderRows() {
+      if (!Array.isArray(currentSuggestions) || currentSuggestions.length === 0) {
+        rowsEl.innerHTML = '<tr><td class="empty" colspan="5">Aucune suggestion pour ce score.</td></tr>';
+        return;
+      }
+
+      rowsEl.innerHTML = currentSuggestions.map((suggestion) => {
+        const memberLeft = suggestion.member_left || {};
+        const memberRight = suggestion.member_right || {};
+        const score = Number(suggestion.similarity_score || 0).toFixed(2);
+        const recommendedId = Number(suggestion.recommended_master_id || 0);
+        const leftId = Number(memberLeft.id || 0);
+        const rightId = Number(memberRight.id || 0);
+        const recLabel = recommendedId === leftId ? 'A' : (recommendedId === rightId ? 'B' : 'auto');
+        return (
+          '<tr>' +
+            '<td><span class="score">' + score + '</span></td>' +
+            '<td><div class="person">' +
+              '<strong>' + String(memberLeft.first_name || '') + ' ' + String(memberLeft.name || '') + '</strong>' +
+              '<span class="meta">Email: ' + String(memberLeft.email || '—') + '</span>' +
+              '<span class="meta">Licence: ' + String(memberLeft.ffck_licence || '—') + '</span>' +
+            '</div></td>' +
+            '<td><div class="person">' +
+              '<strong>' + String(memberRight.first_name || '') + ' ' + String(memberRight.name || '') + '</strong>' +
+              '<span class="meta">Email: ' + String(memberRight.email || '—') + '</span>' +
+              '<span class="meta">Licence: ' + String(memberRight.ffck_licence || '—') + '</span>' +
+            '</div></td>' +
+            '<td><div class="reasons">' + formatReasons(suggestion.reasons) + '</div></td>' +
+            '<td><div class="actions">' +
+              '<button class="primary" data-action="merge" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(recommendedId || '') + '">Fusionner (reco ' + recLabel + ')</button>' +
+              '<button data-action="keep-left" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(leftId) + '">Garder A</button>' +
+              '<button data-action="keep-right" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(rightId) + '">Garder B</button>' +
+            '</div></td>' +
+          '</tr>'
+        );
+      }).join('');
+    }
+
+    async function fetchSuggestions(refresh) {
+      if (!Number.isFinite(Number(activeCampaignId))) {
+        setStatus('Aucune campagne active');
+        currentSuggestions = [];
+        renderRows();
+        return;
+      }
+
+      const parsedScore = Number(minScoreInput.value);
+      const minScore = Number.isFinite(parsedScore) ? Math.max(0, Math.min(1, parsedScore)) : 0.8;
+      minScoreInput.value = minScore.toFixed(2);
+
+      setStatus(refresh ? 'Analyse en cours...' : 'Chargement...');
+      const query = new URLSearchParams({
+        campaignId: String(activeCampaignId),
+        minScore: String(minScore),
+        refresh: refresh ? '1' : '0',
+      });
+
+      try {
+        const response = await fetch('/api/campaigns/member-duplicates/?' + query.toString());
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = payload?.error || ('Erreur HTTP ' + response.status);
+          setStatus('Echec: ' + message);
+          return;
+        }
+        currentSuggestions = Array.isArray(payload?.suggestions) ? payload.suggestions : [];
+        renderRows();
+        if (refresh && payload?.generation) {
+          setStatus('Analyse terminee: ' + String(payload.generation.suggestions_count || 0) + ' suggestion(s)');
+        } else {
+          setStatus(String(currentSuggestions.length) + ' suggestion(s) chargee(s)');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        setStatus('Echec: ' + message);
+      }
+    }
+
+    async function mergeSuggestion(suggestionId, keepMemberId) {
+      if (!Number.isFinite(Number(activeCampaignId))) return;
+      if (!Number.isFinite(Number(suggestionId))) return;
+
+      const body = { suggestion_id: Number(suggestionId) };
+      if (Number.isFinite(Number(keepMemberId))) body.keep_member_id = Number(keepMemberId);
+
+      setStatus('Fusion en cours...');
+      try {
+        const response = await fetch('/api/campaigns/member-duplicates/merge/?campaignId=' + encodeURIComponent(String(activeCampaignId)), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+          },
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = payload?.error || ('Erreur HTTP ' + response.status);
+          setStatus('Fusion en echec: ' + message);
+          return;
+        }
+        setStatus('Fusion terminee');
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+        }
+        await fetchSuggestions(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        setStatus('Fusion en echec: ' + message);
+      }
+    }
+
+    rowsEl.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const suggestionId = Number(button.getAttribute('data-suggestion-id'));
+      const keepId = Number(button.getAttribute('data-keep-id'));
+      if (!Number.isFinite(suggestionId)) return;
+      if (!window.confirm('Confirmer la fusion de ces deux membres ?')) return;
+      mergeSuggestion(suggestionId, keepId);
+    });
+
+    refreshSuggestions.addEventListener('click', () => fetchSuggestions(true));
+    reloadList.addEventListener('click', () => fetchSuggestions(false));
+
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ffck:activeCampaignContext') return;
+
+      const nextCampaignId = Number(event.data?.campaignId);
+      activeCampaignId = Number.isFinite(nextCampaignId) ? nextCampaignId : null;
+      activeCampaignTitle = String(event.data?.campaignTitle || '').trim();
+      campaignInfo.textContent = 'Campagne active: ' + (activeCampaignTitle || '—');
+      fetchSuggestions(false);
+    });
+
+    renderRows();
+  </script>
+</body>
+</html>

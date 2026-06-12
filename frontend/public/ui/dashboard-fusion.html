@@ -1,0 +1,1431 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inscriptions</title>
+  <style>
+    :root {
+      --bg: oklch(98% 0.005 250);
+      --surface: oklch(100% 0 0);
+      --fg: oklch(22% 0.02 240);
+      --muted: oklch(50% 0.018 240);
+      --border: oklch(90% 0.008 240);
+      --accent: oklch(58% 0.16 145);
+      --success: oklch(64% 0.16 145);
+      --warn: oklch(74% 0.16 78);
+      --danger: oklch(63% 0.2 28);
+      --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font-body); color: var(--fg); background: var(--bg); }
+    .layout { min-height: 100svh; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+    aside { position: sticky; top: 0; height: 100svh; overflow-y: auto; border-right: 1px solid var(--border); background: color-mix(in oklch, var(--surface) 94%, var(--accent)); padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .sidebar-main { display: grid; align-content: start; gap: 12px; }
+    .brand { font-weight: 700; letter-spacing: 0.02em; margin-bottom: 10px; }
+    .campaign-switch { display: grid; gap: 6px; margin-bottom: 8px; }
+    .campaign-switch label { font-size: .76rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .campaign-select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 30px 7px 10px; min-height: 36px; font: inherit; background: var(--surface); color: var(--fg); }
+    .campaign-actions { display: flex; gap: 6px; }
+    .campaign-actions button { width: 100%; }
+    .panel-title { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+    .source-config { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px; display: grid; gap: 8px; }
+    .source-config input { width: 100%; }
+    .source-row { display: flex; gap: 6px; align-items: center; }
+    .source-row button { white-space: nowrap; }
+    .micro { font-size: .78rem; color: var(--muted); }
+    .monitor { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px; }
+    .monitor-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+    .monitor-item { border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px; display: grid; gap: 3px; }
+    .monitor-item.is-active { border-color: color-mix(in oklch, var(--accent) 55%, var(--border)); background: color-mix(in oklch, var(--surface) 95%, var(--accent)); }
+    .monitor-item-head { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; }
+    .monitor-state { font-size: .76rem; color: var(--muted); }
+    .aside-tools { display: grid; gap: 8px; margin-top: 10px; }
+    .identity { font-size: .82rem; color: var(--muted); border: 1px solid var(--border); border-radius: 9px; padding: 8px 9px; background: var(--surface); }
+    .identity strong { color: var(--fg); display: block; }
+    .nav { display: grid; gap: 7px; }
+    .nav a { text-decoration: none; color: var(--fg); border: 1px solid transparent; border-radius: 9px; padding: 9px 10px; font-size: 0.92rem; }
+    .nav a.active { border-color: var(--border); background: var(--surface); font-weight: 600; }
+    .sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+    .sidebar-footer button { width: 100%; }
+    main { padding: 20px; display: grid; gap: 14px; }
+    .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .kpi { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 12px; }
+    .kpi .t { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    .kpi .v { margin-top: 5px; font-family: var(--font-mono); font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+    .panel { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+    .panel-head { padding: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+    .title-wrap { display: grid; gap: 2px; }
+    .title { font-size: 1.02rem; font-weight: 650; letter-spacing: -0.01em; }
+    .fusion-meta { font-size: .82rem; color: var(--muted); }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .sync-actions { display: inline-flex; gap: 8px; flex-wrap: nowrap; }
+    input, select, button { border: 1px solid var(--border); border-radius: 8px; font: inherit; background: var(--surface); color: var(--fg); padding: 7px 9px; }
+    button { background: color-mix(in oklch, var(--accent) 18%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; cursor: pointer; }
+    .btn-subtle { background: var(--surface); color: var(--fg); }
+    .icon-action {
+      width: 38px;
+      min-width: 38px;
+      height: 38px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .icon-action.is-loading { opacity: .65; }
+    .delayed-tooltip { position: relative; }
+    .delayed-tooltip::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      left: 50%;
+      top: calc(100% + 8px);
+      transform: translate(-50%, -4px);
+      opacity: 0;
+      pointer-events: none;
+      white-space: nowrap;
+      background: color-mix(in oklch, var(--fg) 88%, black);
+      color: var(--surface);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: .72rem;
+      font-weight: 500;
+      z-index: 30;
+      transition: opacity .12s ease, transform .12s ease;
+    }
+    .delayed-tooltip.tooltip-visible::after {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+    .table-scroll-top { display: none; overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--border); background: var(--surface); height: 14px; }
+    .table-scroll-top-inner { height: 1px; }
+    .table-wrap { overflow: auto; }
+    .table-scroll-top, .table-wrap {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in oklch, var(--accent) 40%, var(--border)) color-mix(in oklch, var(--surface) 88%, var(--border));
+    }
+    .table-scroll-top::-webkit-scrollbar, .table-wrap::-webkit-scrollbar { height: 10px; width: 10px; }
+    .table-scroll-top::-webkit-scrollbar-track, .table-wrap::-webkit-scrollbar-track {
+      background: color-mix(in oklch, var(--surface) 88%, var(--border));
+      border-radius: 999px;
+    }
+    .table-scroll-top::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb {
+      background: color-mix(in oklch, var(--accent) 40%, var(--border));
+      border-radius: 999px;
+      border: 2px solid color-mix(in oklch, var(--surface) 88%, var(--border));
+    }
+    .table-scroll-top::-webkit-scrollbar-thumb:hover, .table-wrap::-webkit-scrollbar-thumb:hover {
+      background: color-mix(in oklch, var(--accent) 58%, var(--border));
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid var(--border); text-align: left; padding: 10px; vertical-align: top; white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 1; background: color-mix(in oklch, var(--surface) 96%, var(--accent)); font-weight: 650; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    td[contenteditable='true'] { cursor: text; }
+    td[contenteditable='true']:focus { outline: 2px solid color-mix(in oklch, var(--accent) 45%, white); outline-offset: -2px; background: color-mix(in oklch, var(--accent) 7%, var(--surface)); }
+    tbody tr:hover { background: color-mix(in oklch, var(--surface) 94%, var(--accent)); }
+    .badge { padding: 3px 7px; border-radius: 999px; font-size: 0.72rem; letter-spacing: 0.02em; border: 1px solid var(--border); white-space: nowrap; }
+    .ok { color: color-mix(in oklch, var(--success) 70%, black); }
+    .warn { color: color-mix(in oklch, var(--warn) 65%, black); }
+    .danger { color: color-mix(in oklch, var(--danger) 62%, black); }
+    .col-head { display: grid; gap: 6px; min-width: 150px; }
+    .col-actions { display: flex; gap: 4px; }
+    .icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: 6px; font-size: .7rem; line-height: 1; padding: 4px 6px; cursor: pointer; }
+    .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .hint { margin: 0; color: var(--muted); font-size: .82rem; }
+    html[data-theme="dark"], body[data-theme="dark"] {
+      --bg: oklch(17% 0.01 255);
+      --surface: oklch(22% 0.01 255);
+      --fg: oklch(95% 0.01 255);
+      --muted: oklch(76% 0.01 255);
+      --border: oklch(36% 0.01 255);
+      --accent: oklch(70% 0.14 150);
+    }
+    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } aside { position: static; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); } .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } .panel-head { align-items: stretch; } .controls > * { width: 100%; } }
+    html[data-embedded="1"] .layout { grid-template-columns: minmax(0, 1fr) !important; }
+    html[data-embedded="1"] aside { display: none !important; }
+  </style>
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem('ffck:theme') || 'dark';
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.dataset.embedded = '1';
+    }
+  </script>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="sidebar-main">
+        <div class="brand">Suivi FFCK</div>
+        <nav class="nav" aria-label="Navigation">
+          <a class="active" href="dashboard-fusion.html">Inscriptions</a>
+          <a href="source-helloasso.html">Source HelloAsso</a>
+          <a href="source-ffck.html">Source FFCK</a>
+          <a href="dedoublonnage-members.html">Dédoublonnage</a>
+          <a href="monitoring-campagnes.html">Monitoring des campagnes</a>
+        </nav>
+        <div class="campaign-switch">
+          <label for="campaignSelect">Campagne</label>
+          <select id="campaignSelect" class="campaign-select" aria-label="Choisir la campagne d'inscription">
+            <option value="">Aucune campagne</option>
+          </select>
+          <div class="campaign-actions">
+            <button id="addCampaign" class="btn-subtle" type="button">Nouvelle campagne</button>
+          </div>
+        </div>
+        <div class="aside-tools" aria-label="Préférences utilisateur">
+          <div class="identity" id="userIdentity" aria-live="polite"></div>
+          <button id="toggleTheme" class="btn-subtle" type="button">Activer le mode sombre</button>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <section class="source-config" aria-label="Configuration des sources">
+          <div class="panel-title">Configuration des sources</div>
+          <label class="micro" for="helloAssoApiKey">Clé API HelloAsso</label>
+          <input id="helloAssoApiKey" type="password" placeholder="ha_live_..." autocomplete="off" />
+          <div class="source-row">
+            <button id="saveApiKey" class="btn-subtle" type="button">Enregistrer</button>
+            <span id="apiKeyStatus" class="micro" aria-live="polite"></span>
+          </div>
+        </section>
+        <button id="authAction" class="btn-subtle" type="button">Se déconnecter</button>
+      </div>
+    </aside>
+
+    <main>
+      <section class="row" aria-label="Indicateurs de fusion">
+        <article class="kpi"><div class="t">Lignes fusionnées</div><div class="v" id="kpiMerged">0</div></article>
+        <article class="kpi"><div class="t">Correspondances exactes</div><div class="v" id="kpiExact">0</div></article>
+        <article class="kpi"><div class="t">Écarts critiques</div><div class="v" id="kpiCritical">0</div></article>
+        <article class="kpi"><div class="t">Écarts mineurs</div><div class="v" id="kpiMinor">0</div></article>
+      </section>
+
+      <section class="panel" aria-label="Tableau consolidé">
+        <div class="panel-head">
+          <div class="title-wrap">
+            <div class="title">Consolidation multi-source</div>
+            <div class="fusion-meta" id="lastFusion" aria-live="polite">Dernière fusion : —</div>
+            <div class="fusion-meta" id="lastModification" aria-live="polite">Dernière modification : —</div>
+          </div>
+          <div class="controls">
+            <input id="search" type="search" placeholder="Rechercher nom, email, licence..." />
+            <select id="statusFilter" aria-label="Filtrer par statut">
+              <option value="all">Tous les statuts</option>
+              <option value="Conforme">Conforme</option>
+              <option value="À vérifier">À vérifier</option>
+              <option value="Bloquant">Bloquant</option>
+            </select>
+            <button id="sortByName" type="button" class="icon-action btn-subtle delayed-tooltip" aria-label="Trier par nom (A-Z)" data-tooltip="Trier par nom (A-Z)">
+              <span aria-hidden="true">⇅</span>
+            </button>
+            <div class="sync-actions">
+              <button id="deleteSelectedMembers" class="icon-action btn-subtle delayed-tooltip" type="button" aria-label="Supprimer la sélection" data-tooltip="Supprimer la sélection">
+                <span aria-hidden="true">🗑</span>
+              </button>
+              <button id="createMember" class="icon-action btn-subtle delayed-tooltip" type="button" aria-label="Créer un membre" data-tooltip="Créer un membre">
+                <span aria-hidden="true">+</span>
+              </button>
+              <button id="saveChanges" class="btn-subtle" type="button" hidden>Sauvegarder les changements</button>
+              <button id="runFusion" type="button" class="icon-action delayed-tooltip" aria-label="Lancer la fusion" data-tooltip="Lancer la fusion">
+                <span aria-hidden="true">🔀</span>
+              </button>
+              <button id="refreshMembers" class="icon-action btn-subtle delayed-tooltip" type="button" aria-label="Rafraîchir les membres" data-tooltip="Rafraîchir les membres">
+                <span aria-hidden="true">↻</span>
+              </button>
+            </div>
+          </div>
+          <p class="hint">Colonnes: ← et → pour déplacer, × pour supprimer. Double-cliquez une cellule pour l'éditer puis Entrée pour valider.</p>
+        </div>
+
+        <div class="table-scroll-top" id="tableScrollTop" aria-hidden="true">
+          <div class="table-scroll-top-inner" id="tableScrollTopInner"></div>
+        </div>
+        <div class="table-wrap" id="tableWrap">
+          <table id="membersTable">
+            <thead>
+              <tr id="headRow"></tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const sourceColumns = [
+      { key: 'statut', label: 'Statut dossier' },
+      { key: 'manual_review', label: 'Vérification manuelle' },
+      { key: 'nom', label: 'Nom' },
+      { key: 'prenom', label: 'Prénom' },
+      { key: 'licence', label: 'Licence FFCK' },
+      { key: 'email', label: 'Email' },
+      { key: 'certificat', label: 'Certificat' },
+      { key: 'autorisation_parentale', label: 'Autorisation parentale' },
+      { key: 'photo', label: 'Photo' },
+      { key: 'option_ia', label: 'Option IA' },
+      { key: 'paiement', label: 'Paiement' }
+    ];
+
+    const campaigns = {};
+
+    const campaignSelect = document.getElementById('campaignSelect');
+    const kpiMerged = document.getElementById('kpiMerged');
+    const kpiExact = document.getElementById('kpiExact');
+    const kpiCritical = document.getElementById('kpiCritical');
+    const kpiMinor = document.getElementById('kpiMinor');
+    const tableWrap = document.getElementById('tableWrap');
+    const membersTable = document.getElementById('membersTable');
+    const tableScrollTop = document.getElementById('tableScrollTop');
+    const tableScrollTopInner = document.getElementById('tableScrollTopInner');
+    const headRow = document.getElementById('headRow');
+    const tbody = document.getElementById('rows');
+    const search = document.getElementById('search');
+    const statusFilter = document.getElementById('statusFilter');
+    const sortByName = document.getElementById('sortByName');
+    const runFusion = document.getElementById('runFusion');
+    const refreshMembers = document.getElementById('refreshMembers');
+    const deleteSelectedMembers = document.getElementById('deleteSelectedMembers');
+    const createMember = document.getElementById('createMember');
+    const saveChanges = document.getElementById('saveChanges');
+    const lastFusion = document.getElementById('lastFusion');
+    const lastModification = document.getElementById('lastModification');
+    const addCampaign = document.getElementById('addCampaign');
+    const toggleTheme = document.getElementById('toggleTheme');
+    const userIdentity = document.getElementById('userIdentity');
+    const authAction = document.getElementById('authAction');
+    const helloAssoApiKey = document.getElementById('helloAssoApiKey');
+    const saveApiKey = document.getElementById('saveApiKey');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
+    const campaignMonitor = document.getElementById('campaignMonitor');
+    const tooltipButtons = [sortByName, deleteSelectedMembers, createMember, runFusion, refreshMembers].filter(Boolean);
+    const CAMPAIGN_STORE_KEY = 'ffck:campaign';
+    const CAMPAIGN_LIST_STORE_KEY = 'ffck:campaign:list';
+    const THEME_STORE_KEY = 'ffck:theme';
+    const USER_STORE_KEY = 'ffck:user';
+    const API_KEY_STORE_KEY = 'ffck:source:helloasso:apiKey';
+    const INSCRIPTIONS_INITIAL_FETCH_DONE_KEY = 'ffck:inscriptions:initial-fetch-done';
+    const INSCRIPTIONS_CAMPAIGN_CATALOG_KEY = 'ffck:inscriptions:campaign-catalog:v1';
+        let activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || '';
+    let activeCampaignIdFromReducer = null;
+    let campaignOptions = [];
+    let campaignCatalog = [];
+    const dirtyCampaigns = new Set();
+    const dirtyMemberIdsByCampaign = new Map();
+    const selectedMemberIdsByCampaign = new Map();
+    let isSyncingHorizontalScroll = false;
+    const TOOLTIP_DELAY_MS = 1000;
+    const tooltipTimers = new WeakMap();
+
+    function showDelayedTooltip(button) {
+      if (!button) return;
+      const existingTimer = tooltipTimers.get(button);
+      if (existingTimer) window.clearTimeout(existingTimer);
+      button.classList.remove('tooltip-visible');
+      const nextTimer = window.setTimeout(() => {
+        button.classList.add('tooltip-visible');
+      }, TOOLTIP_DELAY_MS);
+      tooltipTimers.set(button, nextTimer);
+    }
+
+    function hideDelayedTooltip(button) {
+      if (!button) return;
+      const existingTimer = tooltipTimers.get(button);
+      if (existingTimer) window.clearTimeout(existingTimer);
+      tooltipTimers.delete(button);
+      button.classList.remove('tooltip-visible');
+    }
+
+    function setupDelayedTooltips() {
+      tooltipButtons.forEach((button) => {
+        button.addEventListener('mouseenter', () => showDelayedTooltip(button));
+        button.addEventListener('mouseleave', () => hideDelayedTooltip(button));
+        button.addEventListener('blur', () => hideDelayedTooltip(button));
+        button.addEventListener('click', () => hideDelayedTooltip(button));
+      });
+    }
+
+    function syncHorizontalScrollBar() {
+      if (!tableWrap || !membersTable || !tableScrollTop || !tableScrollTopInner) return;
+      const tableWidth = Math.max(membersTable.scrollWidth, tableWrap.scrollWidth);
+      tableScrollTopInner.style.width = tableWidth + 'px';
+      const hasHorizontalOverflow = tableWidth > tableWrap.clientWidth + 1;
+      tableScrollTop.style.display = hasHorizontalOverflow ? 'block' : 'none';
+      if (hasHorizontalOverflow) {
+        tableScrollTop.scrollLeft = tableWrap.scrollLeft;
+      }
+    }
+
+    function bindHorizontalScrollSync() {
+      if (!tableWrap || !tableScrollTop) return;
+      tableWrap.addEventListener('scroll', () => {
+        if (isSyncingHorizontalScroll) return;
+        isSyncingHorizontalScroll = true;
+        tableScrollTop.scrollLeft = tableWrap.scrollLeft;
+        isSyncingHorizontalScroll = false;
+      });
+      tableScrollTop.addEventListener('scroll', () => {
+        if (isSyncingHorizontalScroll) return;
+        isSyncingHorizontalScroll = true;
+        tableWrap.scrollLeft = tableScrollTop.scrollLeft;
+        isSyncingHorizontalScroll = false;
+      });
+      window.addEventListener('resize', syncHorizontalScrollBar);
+    }
+
+    function toIsoDateString(date) {
+      return date.toISOString().slice(0, 10);
+    }
+
+    function normalizeDateInput(value) {
+      if (value instanceof Date && Number.isFinite(value.getTime())) return value;
+      if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (Number.isFinite(parsed.getTime())) return parsed;
+      }
+      return null;
+    }
+
+    function shiftedDate(baseDate, year) {
+      const base = normalizeDateInput(baseDate) || new Date();
+      const d = new Date(base);
+      const numericYear = Number(year);
+      if (Number.isFinite(numericYear)) d.setFullYear(numericYear);
+      return d;
+    }
+
+    function shiftYearInText(text, year) {
+      return String(text).replace(/20\d{2}/g, String(year));
+    }
+
+    function createCampaignFromTemplate(year) {
+      campaigns[year] = {
+        kpis: { merged: 0, exact: 0, critical: 0, minor: 0 },
+        lastFusionAt: null,
+        lastModifiedAt: null,
+        rows: []
+      };
+    }
+
+    function loadCampaignOptions() {
+      const stored = JSON.parse(localStorage.getItem(CAMPAIGN_LIST_STORE_KEY) || 'null');
+      campaignOptions = Array.isArray(stored) && stored.length > 0 ? stored.map((v) => String(v)) : [];
+      campaignOptions.forEach((key) => {
+        if (!campaigns[key]) createCampaignFromTemplate(key);
+      });
+      localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+    }
+
+    function renderCampaignOptions() {
+      if (!Array.isArray(campaignOptions) || campaignOptions.length === 0) {
+        activeCampaign = '';
+        campaignSelect.disabled = true;
+        campaignSelect.innerHTML = '<option value="">Aucune campagne</option>';
+        campaignSelect.value = '';
+        return;
+      }
+      campaignSelect.disabled = false;
+      campaignSelect.innerHTML = campaignOptions
+        .map((key) => `<option value="${key}">${formatCampaignLabel(key)}</option>`)
+        .join('');
+      if (!campaigns[activeCampaign]) activeCampaign = campaignOptions[campaignOptions.length - 1] || '';
+      campaignSelect.value = activeCampaign;
+    }
+
+    function formatCampaignLabel(name) {
+      return /^\d{4}$/.test(name) ? `Campagne ${name}` : name;
+    }
+
+    let asc = true;
+    let columns = sourceColumns.map((c) => ({ ...c }));
+
+    function currentCampaignData() {
+      return campaigns[activeCampaign];
+    }
+
+    function ensureColumns() {
+      if (!Array.isArray(columns) || columns.length === 0) {
+        columns = sourceColumns.map((c) => ({ ...c }));
+      }
+    }
+
+    function normalizeCampaignKey(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/^campagne\s+/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function mapMemberToRow(member) {
+      return {
+        member_id: Number(member.id),
+        nom: member.name || '—',
+        prenom: member.first_name || '—',
+        licence: member.ffck_licence || '—',
+        email: member.email || '—',
+        certificat: member.certificat || '—',
+        autorisation_parentale: member.autorisation_parentale || '—',
+        photo: member.photo || '—',
+        option_ia: member.option_ia ? 'Oui' : 'Non',
+        manual_review: member.manual_review ? 'vérifié' : 'non vérifié',
+        paiement: '—',
+        statut: 'À vérifier',
+        sources: 'API Members',
+        ecart: 'Aucun'
+      };
+    }
+
+    function isMissingCertificat(value) {
+      const normalized = String(value ?? '').trim();
+      return normalized === '' || normalized === '—';
+    }
+
+    function computeStatusForRow(row) {
+      if (isMissingCertificat(row.certificat)) return 'Bloquant';
+      const review = String(row.manual_review || '').trim().toLowerCase();
+      if (review !== 'vérifié') return 'À vérifier';
+      return 'Conforme';
+    }
+
+    function refreshRowStatus(row) {
+      if (!row || typeof row !== 'object') return;
+      row.statut = computeStatusForRow(row);
+    }
+
+    function refreshCurrentCampaignStatuses() {
+      const data = currentCampaignData();
+      if (!data || !Array.isArray(data.rows)) return;
+      data.rows.forEach((row) => refreshRowStatus(row));
+    }
+
+    function getSelectedSetForActiveCampaign(createIfMissing = false) {
+      if (!activeCampaign) return null;
+      let selected = selectedMemberIdsByCampaign.get(activeCampaign);
+      if (!selected && createIfMissing) {
+        selected = new Set();
+        selectedMemberIdsByCampaign.set(activeCampaign, selected);
+      }
+      return selected || null;
+    }
+
+    function pruneSelectedMembersForActiveCampaign(rows) {
+      const selected = getSelectedSetForActiveCampaign(false);
+      if (!selected) return;
+      const validIds = new Set(
+        (Array.isArray(rows) ? rows : [])
+          .map((row) => Number(row?.member_id))
+          .filter((memberId) => Number.isFinite(memberId)),
+      );
+      for (const memberId of Array.from(selected.values())) {
+        if (!validIds.has(memberId)) selected.delete(memberId);
+      }
+    }
+
+    function renderDeleteSelectionState(rows = null) {
+      if (!deleteSelectedMembers) return;
+      const selected = getSelectedSetForActiveCampaign(false);
+      const count = selected ? selected.size : 0;
+      const hasSelection = count > 0;
+      deleteSelectedMembers.disabled = !hasSelection;
+      const tooltip = hasSelection
+        ? `Supprimer la sélection (${count})`
+        : 'Supprimer la sélection';
+      deleteSelectedMembers.dataset.tooltip = tooltip;
+      deleteSelectedMembers.setAttribute('aria-label', tooltip);
+      if (!hasSelection) {
+        deleteSelectedMembers.classList.remove('is-loading');
+      }
+    }
+
+    function applyMembersToCampaign(members) {
+      const data = currentCampaignData();
+      if (!data || !activeCampaign) return;
+      const rows = Array.isArray(members) ? members.map(mapMemberToRow) : [];
+      data.rows = rows;
+      pruneSelectedMembersForActiveCampaign(rows);
+      refreshCurrentCampaignStatuses();
+      data.kpis = {
+        merged: rows.length,
+        exact: rows.length,
+        critical: 0,
+        minor: 0
+      };
+    }
+
+    function applyCachedMembers(members) {
+      if (!Array.isArray(members) || members.length === 0) return false;
+      applyMembersToCampaign(members);
+      renderCampaignMonitor();
+      renderLastModification();
+      render();
+      return true;
+    }
+
+    function findActiveCampaignId() {
+      if (Number.isFinite(Number(activeCampaignIdFromReducer))) {
+        return Number(activeCampaignIdFromReducer);
+      }
+      const activeKey = normalizeCampaignKey(activeCampaign);
+      const match = campaignCatalog.find((campaign) => normalizeCampaignKey(campaign.title) === activeKey);
+      return match?.id ?? null;
+    }
+
+    function parseCampaignCatalogCache() {
+      try {
+        const parsed = JSON.parse(sessionStorage.getItem(INSCRIPTIONS_CAMPAIGN_CATALOG_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function normalizeCampaignCatalogList(list) {
+      return list
+        .map((campaign) => ({
+          id: Number(campaign?.id),
+          title: String(campaign?.title || '').trim(),
+          lastManualEdition:
+            typeof campaign?.last_manual_edition === 'string' && campaign.last_manual_edition.trim()
+              ? campaign.last_manual_edition
+              : (typeof campaign?.lastManualEdition === 'string' && campaign.lastManualEdition.trim()
+                ? campaign.lastManualEdition
+                : null),
+        }))
+        .filter((campaign) => Number.isFinite(campaign.id) && campaign.title);
+    }
+
+    function applyCampaignCatalog(list) {
+      campaignCatalog = normalizeCampaignCatalogList(list);
+      if (campaignCatalog.length === 0) return;
+      const lastManualByTitle = new Map(
+        campaignCatalog.map((campaign) => [campaign.title, campaign.lastManualEdition || null]),
+      );
+      campaignCatalog.forEach((campaign) => {
+        if (!campaigns[campaign.title]) return;
+        campaigns[campaign.title].lastModifiedAt = campaign.lastManualEdition;
+      });
+      campaignOptions = [...new Set(campaignCatalog.map((campaign) => campaign.title))];
+      campaignOptions.forEach((key) => {
+        if (!campaigns[key]) createCampaignFromTemplate(key);
+        campaigns[key].lastModifiedAt = lastManualByTitle.get(key) || null;
+      });
+      if (Number.isFinite(Number(activeCampaignIdFromReducer))) {
+        const selectedByReducer = campaignCatalog.find(
+          (campaign) => Number(campaign.id) === Number(activeCampaignIdFromReducer),
+        );
+        if (selectedByReducer?.title) {
+          activeCampaign = selectedByReducer.title;
+          localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+        }
+      }
+      if (!campaignOptions.includes(activeCampaign)) {
+        activeCampaign = campaignOptions[campaignOptions.length - 1];
+        localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      }
+      localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+      renderCampaignOptions();
+    }
+
+    async function loadCampaignCatalog(forceFetch = false) {
+      try {
+        if (!forceFetch) {
+          const cachedList = parseCampaignCatalogCache();
+          if (cachedList.length > 0) {
+            applyCampaignCatalog(cachedList);
+            return;
+          }
+        }
+        const response = await fetch('/api/campaigns/');
+        if (!response.ok) return;
+        const payload = await response.json();
+        const list = Array.isArray(payload?.campaigns) ? payload.campaigns : [];
+        applyCampaignCatalog(list);
+        sessionStorage.setItem(INSCRIPTIONS_CAMPAIGN_CATALOG_KEY, JSON.stringify(list));
+      } catch (_) {
+        campaignCatalog = [];
+      }
+    }
+
+    async function loadMembersForActiveCampaign(forceFetch = false) {
+      if (forceFetch && window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+      }
+      renderCampaignMonitor();
+      renderLastModification();
+      render();
+    }
+
+    function formatFusionDate(date) {
+      const safeDate = normalizeDateInput(date);
+      if (!safeDate) return '—';
+      return new Intl.DateTimeFormat('fr-FR', {
+        dateStyle: 'short',
+        timeStyle: 'medium'
+      }).format(safeDate);
+    }
+
+    function renderSaveChangesState() {
+      if (!saveChanges) return;
+      const isDirty = dirtyCampaigns.has(activeCampaign);
+      saveChanges.hidden = !isDirty;
+      saveChanges.disabled = !isDirty;
+    }
+
+    function markCampaignDirty(memberId = null) {
+      dirtyCampaigns.add(activeCampaign);
+      if (Number.isFinite(Number(memberId))) {
+        const campaignDirtyMembers = dirtyMemberIdsByCampaign.get(activeCampaign) || new Set();
+        campaignDirtyMembers.add(Number(memberId));
+        dirtyMemberIdsByCampaign.set(activeCampaign, campaignDirtyMembers);
+      }
+      renderSaveChangesState();
+    }
+
+    function toBooleanFromCellValue(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      return ['1', 'true', 'yes', 'oui', 'vérifié', 'verifie', 'verified'].includes(normalized);
+    }
+
+    function normalizeOptionalLink(value) {
+      const text = String(value || '').trim();
+      return text === '—' ? '' : text;
+    }
+
+    function toMemberPatchFromRow(row) {
+      if (!row || !Number.isFinite(Number(row.member_id))) return null;
+      return {
+        id: Number(row.member_id),
+        first_name: String(row.prenom || '').trim(),
+        name: String(row.nom || '').trim(),
+        ffck_licence: String(row.licence || '').trim(),
+        email: String(row.email || '').trim(),
+        certificat: normalizeOptionalLink(row.certificat),
+        autorisation_parentale: normalizeOptionalLink(row.autorisation_parentale),
+        photo: normalizeOptionalLink(row.photo),
+        option_ia: toBooleanFromCellValue(row.option_ia),
+        manual_review: toBooleanFromCellValue(row.manual_review),
+      };
+    }
+
+    function emitMemberEdited(row) {
+      const member = toMemberPatchFromRow(row);
+      if (!member) return;
+      const campaignId = findActiveCampaignId();
+      if (!Number.isFinite(Number(campaignId))) return;
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(
+          {
+            type: 'ffck:memberEdited',
+            campaignId: Number(campaignId),
+            member,
+          },
+          window.location.origin,
+        );
+      }
+    }
+
+    function readCookie(name) {
+      const cookieName = String(name || '').trim();
+      if (!cookieName) return '';
+      const parts = document.cookie ? document.cookie.split(';') : [];
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith(cookieName + '=')) {
+          return decodeURIComponent(trimmed.slice(cookieName.length + 1));
+        }
+      }
+      return '';
+    }
+
+    function getDirtyMemberPayload() {
+      const data = currentCampaignData();
+      const dirtyIds = dirtyMemberIdsByCampaign.get(activeCampaign);
+      if (!data || !dirtyIds || dirtyIds.size === 0) return [];
+      return data.rows
+        .filter((row) => Number.isFinite(Number(row.member_id)) && dirtyIds.has(Number(row.member_id)))
+        .map((row) => ({
+          id: Number(row.member_id),
+          first_name: String(row.prenom || '').trim(),
+          name: String(row.nom || '').trim(),
+          ffck_licence: String(row.licence || '').trim(),
+          email: String(row.email || '').trim(),
+          certificat: normalizeOptionalLink(row.certificat),
+          autorisation_parentale: normalizeOptionalLink(row.autorisation_parentale),
+          photo: normalizeOptionalLink(row.photo),
+          option_ia: toBooleanFromCellValue(row.option_ia),
+          manual_review: toBooleanFromCellValue(row.manual_review),
+        }));
+    }
+
+    function renderLastModification() {
+      const data = currentCampaignData();
+      const formatted = data ? formatFusionDate(data.lastModifiedAt) : '—';
+      lastModification.textContent = 'Dernière modification : ' + formatted;
+    }
+
+    async function saveActiveCampaignEdits() {
+      const data = currentCampaignData();
+      if (!data || !activeCampaign) return;
+      const campaignId = findActiveCampaignId();
+      if (!campaignId) return;
+      const members = getDirtyMemberPayload();
+      if (members.length === 0) return;
+      const csrfToken = readCookie('csrftoken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+      const response = await fetch(`/api/campaigns/${campaignId}/manual-edition/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ members }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || ('Erreur HTTP ' + response.status));
+      }
+      data.lastModifiedAt = payload?.last_manual_edition || new Date().toISOString();
+      dirtyCampaigns.delete(activeCampaign);
+      dirtyMemberIdsByCampaign.delete(activeCampaign);
+      renderSaveChangesState();
+      renderLastModification();
+    }
+
+    async function createMemberForActiveCampaign() {
+      if (!activeCampaign) {
+        lastModification.textContent = 'Dernière modification : aucune campagne sélectionnée';
+        return;
+      }
+      const campaignId = findActiveCampaignId();
+      if (!campaignId) {
+        lastModification.textContent = 'Dernière modification : campagne "' + activeCampaign + '" introuvable côté API';
+        return;
+      }
+
+      const firstName = window.prompt('Prénom du nouveau membre ?');
+      if (!firstName) return;
+      const name = window.prompt('Nom du nouveau membre ?');
+      if (!name) return;
+      const email = window.prompt('Email du nouveau membre ?');
+      if (!email) return;
+
+      const csrfToken = readCookie('csrftoken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+
+      const response = await fetch(`/api/campaigns/${campaignId}/members/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          first_name: String(firstName).trim(),
+          name: String(name).trim(),
+          email: String(email).trim(),
+          ffck_licence: '',
+          manual_review: false,
+          option_ia: false,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || ('Erreur HTTP ' + response.status));
+      }
+
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+      }
+      await loadMembersForActiveCampaign(false);
+    }
+
+    async function deleteSelectedMembersForActiveCampaign() {
+      if (!activeCampaign) return;
+      const campaignId = findActiveCampaignId();
+      if (!campaignId) {
+        throw new Error('Campagne introuvable côté API.');
+      }
+      const selected = getSelectedSetForActiveCampaign(false);
+      const memberIds = selected ? Array.from(selected.values()) : [];
+      if (memberIds.length === 0) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Supprimer ${memberIds.length} membre(s) de la campagne "${activeCampaign}" ?`,
+      );
+      if (!confirmed) return;
+
+      const csrfToken = readCookie('csrftoken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+
+      const response = await fetch(`/api/campaigns/${campaignId}/members/bulk-delete/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ member_ids: memberIds }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || ('Erreur HTTP ' + response.status));
+      }
+
+      selected.clear();
+      renderDeleteSelectionState();
+
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+      }
+      await loadMembersForActiveCampaign(false);
+    }
+
+    function renderLastFusion() {
+      const data = currentCampaignData();
+      const formatted = data ? formatFusionDate(data.lastFusionAt) : '—';
+      lastFusion.textContent = 'Dernière fusion : ' + formatted;
+    }
+
+    function applyTheme() {
+      const savedTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark';
+      const nextTheme = savedTheme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = nextTheme;
+      document.body.dataset.theme = nextTheme;
+      toggleTheme.textContent = nextTheme === 'dark'
+        ? 'Activer le mode clair'
+        : 'Activer le mode sombre';
+    }
+
+    function maskApiKey(value) {
+      if (!value) return '';
+      if (value.length <= 6) return '••••••';
+      return `${value.slice(0, 3)}••••${value.slice(-3)}`;
+    }
+
+    function renderApiKeyState() {
+      const key = localStorage.getItem(API_KEY_STORE_KEY) || '';
+      helloAssoApiKey.value = key;
+      apiKeyStatus.textContent = key ? `Clé enregistrée (${maskApiKey(key)})` : 'Aucune clé enregistrée';
+    }
+
+    function parseUser() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(USER_STORE_KEY) || 'null');
+        if (parsed && parsed.name) return parsed;
+      } catch (_) {}
+      return null;
+    }
+
+    function ensureDefaultUser() {
+      if (!parseUser()) {
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: 'Utilisateur bureau directeur', role: 'Bureau directeur' }));
+      }
+    }
+
+    function renderUserIdentity() {
+      const user = parseUser();
+      if (user) {
+        userIdentity.innerHTML = `<strong>${user.name}</strong><span>${user.role || 'Connecté'}</span>`;
+        authAction.textContent = 'Se déconnecter';
+      } else {
+        userIdentity.textContent = 'Aucun utilisateur connecté';
+        authAction.textContent = 'Se connecter';
+      }
+    }
+
+    function campaignSnapshot(name) {
+      const data = campaigns[name];
+      if (!data) return { status: 'Inconnu', date: '—', etat: '—' };
+      const critical = data.rows.filter((r) => r.statut === 'Bloquant').length;
+      const warnings = data.rows.filter((r) => r.statut === 'À vérifier').length;
+      const status = critical > 0 ? 'Bloquée' : warnings > 0 ? 'À contrôler' : 'Stable';
+      const etat = name === activeCampaign ? 'Campagne active' : 'Campagne ouverte';
+      return { status, date: formatFusionDate(data.lastFusionAt), etat };
+    }
+
+    function renderCampaignMonitor() {
+      if (!campaignMonitor) return;
+      campaignMonitor.innerHTML = campaignOptions.map((name) => {
+        const snap = campaignSnapshot(name);
+        const activeClass = name === activeCampaign ? ' is-active' : '';
+        return `<li class="monitor-item${activeClass}"><div class="monitor-item-head"><strong>${formatCampaignLabel(name)}</strong><span>${snap.status}</span></div><div class="monitor-state">${snap.date}</div><div class="monitor-state">${snap.etat}</div></li>`;
+      }).join('');
+    }
+
+    function renderKpis() {
+      const kpis = currentCampaignData()?.kpis || { merged: 0, exact: 0, critical: 0, minor: 0 };
+      kpiMerged.textContent = String(kpis.merged);
+      kpiExact.textContent = String(kpis.exact);
+      kpiCritical.textContent = String(kpis.critical);
+      kpiMinor.textContent = String(kpis.minor);
+    }
+
+    function statusClass(text) {
+      if (text === 'Conforme') return 'ok';
+      if (text === 'À vérifier') return 'warn';
+      return 'danger';
+    }
+
+    function manualReviewClass(text) {
+      return text === 'vérifié' ? 'ok' : 'warn';
+    }
+
+    function filteredRows() {
+      refreshCurrentCampaignStatuses();
+      const q = search.value.trim().toLowerCase();
+      const f = statusFilter.value;
+      const currentRows = currentCampaignData()?.rows || [];
+      return currentRows
+        .filter((r) => {
+          const inText = Object.values(r).join(' ').toLowerCase().includes(q);
+          const inStatus = f === 'all' || r.statut === f;
+          return inText && inStatus;
+        })
+        .sort((a, b) => asc ? a.nom.localeCompare(b.nom, 'fr') : b.nom.localeCompare(a.nom, 'fr'));
+    }
+
+    function renderHeader() {
+      ensureColumns();
+      const rows = filteredRows();
+      const selected = getSelectedSetForActiveCampaign(false);
+      const selectableIds = rows
+        .map((row) => Number(row?.member_id))
+        .filter((memberId) => Number.isFinite(memberId));
+      const allSelected =
+        selectableIds.length > 0 &&
+        !!selected &&
+        selectableIds.every((memberId) => selected.has(memberId));
+      headRow.innerHTML = `
+        <th>
+          <input
+            id="selectAllMembers"
+            type="checkbox"
+            aria-label="Sélectionner tous les membres visibles"
+            ${allSelected ? 'checked' : ''}
+          />
+        </th>
+      ` + columns.map((col, i) => `
+        <th>
+          <div class="col-head">
+            <span>${col.label}</span>
+            <div class="col-actions">
+              <button class="icon-btn" type="button" data-action="left" data-index="${i}" ${i === 0 ? 'disabled' : ''}>←</button>
+              <button class="icon-btn" type="button" data-action="right" data-index="${i}" ${i === columns.length - 1 ? 'disabled' : ''}>→</button>
+              <button class="icon-btn" type="button" data-action="delete" data-index="${i}" ${columns.length === 1 ? 'disabled' : ''}>×</button>
+            </div>
+          </div>
+        </th>
+      `).join('');
+    }
+
+    function renderRows() {
+      const rows = filteredRows();
+      const selected = getSelectedSetForActiveCampaign(true);
+      tbody.innerHTML = rows.map((r, rowIdx) => {
+        const memberId = Number(r.member_id);
+        const isSelected = Number.isFinite(memberId) && selected ? selected.has(memberId) : false;
+        const selectCell = `
+          <td>
+            <input
+              class="member-select"
+              type="checkbox"
+              data-member-id="${Number.isFinite(memberId) ? memberId : ''}"
+              aria-label="Sélectionner ce membre"
+              ${isSelected ? 'checked' : ''}
+              ${Number.isFinite(memberId) ? '' : 'disabled'}
+            />
+          </td>
+        `;
+        const cells = columns.map((col) => {
+          const raw = r[col.key] ?? '';
+          const displayRaw = col.key === 'manual_review' ? (raw || 'non vérifié') : raw;
+          const isLinkColumn = col.key === 'certificat' || col.key === 'autorisation_parentale' || col.key === 'photo';
+          const isStatusBadgeColumn = col.key === 'statut' || col.key === 'manual_review';
+          const isUrl = typeof displayRaw === 'string' && /^https?:\/\//i.test(displayRaw.trim());
+          const value = isStatusBadgeColumn
+            ? '<span class="badge ' + (col.key === 'statut' ? statusClass(displayRaw) : manualReviewClass(displayRaw)) + '">' + displayRaw + '</span>'
+            : (isLinkColumn && isUrl
+              ? '<a href="' + displayRaw + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
+              : displayRaw);
+          const editable = (isLinkColumn || col.key === 'statut' || col.key === 'manual_review') ? 'false' : 'true';
+          return '<td contenteditable="' + editable + '" data-row="' + rowIdx + '" data-key="' + col.key + '">' + value + '</td>';
+        }).join('');
+        return '<tr>' + selectCell + cells + '</tr>';
+      }).join('');
+      renderDeleteSelectionState(rows);
+      requestAnimationFrame(syncHorizontalScrollBar);
+    }
+
+    function render() {
+      renderKpis();
+      renderHeader();
+      renderRows();
+    }
+
+    headRow.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-action]');
+      if (!btn) return;
+      const index = Number(btn.dataset.index);
+      const action = btn.dataset.action;
+      if (action === 'left' && index > 0) [columns[index], columns[index - 1]] = [columns[index - 1], columns[index]];
+      if (action === 'right' && index < columns.length - 1) [columns[index], columns[index + 1]] = [columns[index + 1], columns[index]];
+      if (action === 'delete' && columns.length > 1) columns.splice(index, 1);
+      render();
+    });
+
+    headRow.addEventListener('change', (event) => {
+      const checkbox = event.target.closest('#selectAllMembers');
+      if (!checkbox) return;
+      const rows = filteredRows();
+      const selected = getSelectedSetForActiveCampaign(true);
+      rows.forEach((row) => {
+        const memberId = Number(row?.member_id);
+        if (!Number.isFinite(memberId)) return;
+        if (checkbox.checked) selected.add(memberId);
+        else selected.delete(memberId);
+      });
+      renderRows();
+      renderHeader();
+    });
+
+    tbody.addEventListener('click', (event) => {
+      const cell = event.target.closest('td[data-key="manual_review"]');
+      if (!cell) return;
+      const rows = filteredRows();
+      const row = rows[Number(cell.dataset.row)];
+      if (!row) return;
+      const currentValue = String(row.manual_review || '').trim();
+      row.manual_review = currentValue === 'vérifié' ? 'non vérifié' : 'vérifié';
+      refreshRowStatus(row);
+      markCampaignDirty(row.member_id);
+      emitMemberEdited(row);
+      renderRows();
+    });
+
+    tbody.addEventListener('change', (event) => {
+      const checkbox = event.target.closest('input.member-select');
+      if (!checkbox) return;
+      const memberId = Number(checkbox.dataset.memberId);
+      if (!Number.isFinite(memberId)) return;
+      const selected = getSelectedSetForActiveCampaign(true);
+      if (checkbox.checked) selected.add(memberId);
+      else selected.delete(memberId);
+      renderDeleteSelectionState();
+      renderHeader();
+    });
+
+    tbody.addEventListener('dblclick', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      if (cell.querySelector('.badge')) cell.textContent = cell.textContent.trim();
+      cell.focus();
+      document.execCommand('selectAll', false, null);
+    });
+
+    tbody.addEventListener('keydown', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        cell.blur();
+      }
+    });
+
+    tbody.addEventListener('blur', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      const rows = filteredRows();
+      const row = rows[Number(cell.dataset.row)];
+      if (!row) return;
+      const nextValue = cell.textContent.trim();
+      const previousValue = String(row[cell.dataset.key] ?? '').trim();
+      if (nextValue !== previousValue) {
+        row[cell.dataset.key] = nextValue;
+        refreshRowStatus(row);
+        markCampaignDirty(row.member_id);
+        emitMemberEdited(row);
+      }
+      renderRows();
+    }, true);
+
+    search.addEventListener('input', renderRows);
+    statusFilter.addEventListener('change', renderRows);
+    sortByName.addEventListener('click', () => {
+      asc = !asc;
+      const sortLabel = asc ? 'Trier par nom (A-Z)' : 'Trier par nom (Z-A)';
+      sortByName.dataset.tooltip = sortLabel;
+      sortByName.setAttribute('aria-label', sortLabel);
+      renderRows();
+    });
+    runFusion.addEventListener('click', async () => {
+      if (!activeCampaign) {
+        lastFusion.textContent = 'Dernière fusion : aucune campagne sélectionnée';
+        return;
+      }
+      const campaignId = findActiveCampaignId();
+      if (!campaignId) {
+        lastFusion.textContent = 'Dernière fusion : campagne "' + activeCampaign + '" introuvable côté API';
+        return;
+      }
+
+      runFusion.disabled = true;
+      runFusion.classList.add('is-loading');
+      runFusion.dataset.tooltip = 'Fusion en cours...';
+      runFusion.setAttribute('aria-label', 'Fusion en cours...');
+      try {
+        const campaignIdQuery = '?campaignId=' + encodeURIComponent(String(campaignId));
+
+        let response = await fetch('/api/campaigns/sync-members/' + campaignIdQuery);
+        let payload = await response.json().catch(() => ({}));
+
+        if (response.status === 404) {
+          const helloAssoResponse = await fetch('/api/helloasso/sync-members/' + campaignIdQuery);
+          const helloAssoPayload = await helloAssoResponse.json().catch(() => ({}));
+          if (!helloAssoResponse.ok) {
+            const errorMessage = helloAssoPayload?.error || ('Erreur HTTP ' + helloAssoResponse.status);
+            lastFusion.textContent = 'Dernière fusion : échec (' + errorMessage + ')';
+            return;
+          }
+
+          const ffckResponse = await fetch('/api/ffck/sync-members/' + campaignIdQuery);
+          const ffckPayload = await ffckResponse.json().catch(() => ({}));
+          if (!ffckResponse.ok) {
+            const errorMessage = ffckPayload?.error || ('Erreur HTTP ' + ffckResponse.status);
+            lastFusion.textContent = 'Dernière fusion : échec (' + errorMessage + ')';
+            return;
+          }
+
+          response = ffckResponse;
+          payload = ffckPayload;
+        }
+
+        if (!response.ok) {
+          const errorMessage = payload?.error || ('Erreur HTTP ' + response.status);
+          lastFusion.textContent = 'Dernière fusion : échec (' + errorMessage + ')';
+          return;
+        }
+
+        currentCampaignData().lastFusionAt = new Date();
+        renderLastFusion();
+
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+        }
+
+        await loadMembersForActiveCampaign();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        lastFusion.textContent = 'Dernière fusion : échec (' + message + ')';
+      } finally {
+        runFusion.disabled = false;
+        runFusion.classList.remove('is-loading');
+        runFusion.dataset.tooltip = 'Lancer la fusion';
+        runFusion.setAttribute('aria-label', 'Lancer la fusion');
+      }
+    });
+    saveChanges.addEventListener('click', async () => {
+      const previousLabel = saveChanges.textContent;
+      saveChanges.disabled = true;
+      saveChanges.textContent = 'Sauvegarde...';
+      try {
+        await saveActiveCampaignEdits();
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        lastModification.textContent = 'Dernière modification : échec (' + message + ')';
+      } finally {
+        saveChanges.textContent = previousLabel;
+        renderSaveChangesState();
+      }
+    });
+    campaignSelect.addEventListener('change', async () => {
+      activeCampaign = campaignSelect.value;
+      activeCampaignIdFromReducer = null;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      search.value = '';
+      statusFilter.value = 'all';
+      renderLastFusion();
+      renderLastModification();
+      renderSaveChangesState();
+      renderCampaignMonitor();
+      render();
+      await loadMembersForActiveCampaign(false);
+    });
+    refreshMembers.addEventListener('click', async () => {
+      refreshMembers.disabled = true;
+      refreshMembers.classList.add('is-loading');
+      refreshMembers.dataset.tooltip = 'Rafraîchissement en cours...';
+      refreshMembers.setAttribute('aria-label', 'Rafraîchissement en cours...');
+      try {
+        await loadMembersForActiveCampaign(true);
+      } finally {
+        refreshMembers.disabled = false;
+        refreshMembers.classList.remove('is-loading');
+        refreshMembers.dataset.tooltip = 'Rafraîchir les membres';
+        refreshMembers.setAttribute('aria-label', 'Rafraîchir les membres');
+      }
+    });
+    createMember.addEventListener('click', async () => {
+      createMember.disabled = true;
+      createMember.classList.add('is-loading');
+      createMember.dataset.tooltip = 'Création en cours...';
+      createMember.setAttribute('aria-label', 'Création en cours...');
+      try {
+        await createMemberForActiveCampaign();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        lastModification.textContent = 'Dernière modification : échec (' + message + ')';
+      } finally {
+        createMember.disabled = false;
+        createMember.classList.remove('is-loading');
+        createMember.dataset.tooltip = 'Créer un membre';
+        createMember.setAttribute('aria-label', 'Créer un membre');
+      }
+    });
+    deleteSelectedMembers.addEventListener('click', async () => {
+      deleteSelectedMembers.disabled = true;
+      deleteSelectedMembers.classList.add('is-loading');
+      deleteSelectedMembers.dataset.tooltip = 'Suppression en cours...';
+      deleteSelectedMembers.setAttribute('aria-label', 'Suppression en cours...');
+      try {
+        await deleteSelectedMembersForActiveCampaign();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        lastModification.textContent = 'Dernière modification : échec (' + message + ')';
+      } finally {
+        deleteSelectedMembers.classList.remove('is-loading');
+        renderDeleteSelectionState();
+      }
+    });
+    addCampaign.addEventListener('click', () => {
+      const name = window.prompt('Nom de la nouvelle campagne ?', `Campagne ${new Date().getFullYear() + 1}`);
+      if (!name) return;
+      const normalized = name.trim().replace(/\s+/g, ' ');
+      if (!normalized) return;
+      const existing = campaignOptions.find((value) => value.toLowerCase() === normalized.toLowerCase());
+      const campaignKey = existing || normalized;
+      if (!existing) {
+        campaignOptions.push(campaignKey);
+        createCampaignFromTemplate(campaignKey);
+        localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+        renderCampaignOptions();
+      }
+      activeCampaign = campaignKey;
+      campaignSelect.value = campaignKey;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, campaignKey);
+      renderLastFusion();
+      renderLastModification();
+      renderSaveChangesState();
+      renderCampaignMonitor();
+      render();
+    });
+    saveApiKey.addEventListener('click', () => {
+      const key = helloAssoApiKey.value.trim();
+      if (!key) localStorage.removeItem(API_KEY_STORE_KEY);
+      else localStorage.setItem(API_KEY_STORE_KEY, key);
+      renderApiKeyState();
+    });
+    toggleTheme.addEventListener('click', () => {
+      const isDark = document.body.dataset.theme === 'dark';
+      localStorage.setItem(THEME_STORE_KEY, isDark ? 'light' : 'dark');
+      applyTheme();
+    });
+    authAction.addEventListener('click', () => {
+      const current = parseUser();
+      if (current) {
+        localStorage.removeItem(USER_STORE_KEY);
+      } else {
+        const name = window.prompt('Nom de l’utilisateur à connecter ?', 'Utilisateur bureau directeur');
+        if (!name) return;
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: name.trim(), role: 'Bureau directeur' }));
+      }
+      renderUserIdentity();
+    });
+
+    window.addEventListener('storage', (event) => {
+      if (!event.key || event.key === THEME_STORE_KEY) applyTheme();
+      if (!event.key || event.key === USER_STORE_KEY) renderUserIdentity();
+      if (!event.key || event.key === API_KEY_STORE_KEY) renderApiKeyState();
+      if (!event.key || event.key === CAMPAIGN_LIST_STORE_KEY) {
+        loadCampaignOptions();
+        renderCampaignOptions();
+      }
+      if (!event.key || event.key === CAMPAIGN_STORE_KEY || event.key === CAMPAIGN_LIST_STORE_KEY) {
+        activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || activeCampaign;
+        renderCampaignOptions();
+        renderLastFusion();
+        renderLastModification();
+        renderSaveChangesState();
+        renderCampaignMonitor();
+        render();
+        loadMembersForActiveCampaign(false);
+      }
+    });
+
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ffck:activeCampaignMembers') return;
+      const payloadCampaignId = Number(event.data?.campaignId);
+      const payloadCampaignTitle =
+        typeof event.data?.campaignTitle === 'string' ? event.data.campaignTitle.trim() : '';
+      activeCampaignIdFromReducer = Number.isFinite(payloadCampaignId) ? payloadCampaignId : null;
+
+      if (payloadCampaignTitle) {
+        activeCampaign = payloadCampaignTitle;
+        if (!campaignOptions.includes(activeCampaign)) {
+          campaignOptions.push(activeCampaign);
+          if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+          localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+        }
+        localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+        renderCampaignOptions();
+      }
+
+      const activeData = currentCampaignData();
+      if (activeData) {
+        const mergeValue = typeof event.data?.lastMerge === 'string' && event.data.lastMerge.trim()
+          ? event.data.lastMerge
+          : null;
+        const manualEditionValue = typeof event.data?.lastManualEdition === 'string' && event.data.lastManualEdition.trim()
+          ? event.data.lastManualEdition
+          : null;
+        activeData.lastFusionAt = mergeValue;
+        activeData.lastModifiedAt = manualEditionValue;
+        renderLastFusion();
+        renderLastModification();
+        renderCampaignMonitor();
+      }
+
+      applyCachedMembers(event.data?.members);
+    });
+
+    async function initializePage() {
+      setupDelayedTooltips();
+      bindHorizontalScrollSync();
+      loadCampaignOptions();
+      renderCampaignOptions();
+      ensureDefaultUser();
+      applyTheme();
+      renderUserIdentity();
+      renderApiKeyState();
+      renderLastFusion();
+      renderLastModification();
+      renderSaveChangesState();
+      renderCampaignMonitor();
+      render();
+      requestAnimationFrame(syncHorizontalScrollBar);
+      await loadCampaignCatalog(false);
+      const initialFetchDone = sessionStorage.getItem(INSCRIPTIONS_INITIAL_FETCH_DONE_KEY) === '1';
+      if (!initialFetchDone) {
+        await loadMembersForActiveCampaign(true);
+        sessionStorage.setItem(INSCRIPTIONS_INITIAL_FETCH_DONE_KEY, '1');
+      } else {
+        await loadMembersForActiveCampaign(false);
+      }
+    }
+
+    initializePage();
+  </script>
+</body>
+</html>

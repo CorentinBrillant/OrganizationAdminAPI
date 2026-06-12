@@ -1,0 +1,220 @@
+:root {
+  --bg: oklch(17% 0.01 255);
+  --surface: oklch(22% 0.01 255);
+  --fg: oklch(95% 0.01 255);
+  --muted: oklch(76% 0.01 255);
+  --border: oklch(36% 0.01 255);
+  --accent: oklch(70% 0.14 150);
+  --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-body);
+  color: var(--fg);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  height: 100%;
+}
+
+.shared-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: color-mix(in oklch, var(--surface) 94%, var(--accent));
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebar-main {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.nav {
+  display: grid;
+  gap: 7px;
+}
+
+.nav button {
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg);
+  border-radius: 9px;
+  padding: 9px 10px;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.nav button.active {
+  border-color: var(--border);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.campaign-switch {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.campaign-switch label {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.campaign-select,
+.source-config input,
+.btn-subtle {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  background: var(--surface);
+  color: var(--fg);
+  padding: 7px 9px;
+}
+
+.campaign-select {
+  min-height: 36px;
+  padding: 7px 30px 7px 10px;
+}
+
+.campaign-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.campaign-actions .btn-subtle {
+  width: 100%;
+}
+
+.panel-title {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.source-config {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+}
+
+.source-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.micro {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.aside-tools {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.theme-toggle {
+  justify-self: start;
+  border: 0;
+  border-bottom: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 0;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.theme-toggle:hover {
+  opacity: 1;
+}
+
+.identity {
+  font-size: 0.82rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 9px;
+  background: var(--surface);
+  display: grid;
+}
+
+.identity strong {
+  color: var(--fg);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-footer .btn-subtle {
+  width: 100%;
+}
+
+.app-main {
+  height: 100%;
+  min-height: 0;
+}
+
+.ui-embed {
+  border: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #16171d;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .shared-sidebar {
+    position: static;
+    height: auto;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

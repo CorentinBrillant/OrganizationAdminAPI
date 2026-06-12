@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: organization-admin-db
+    environment:
+      POSTGRES_DB: organization_admin
+      POSTGRES_USER: organization_admin
+      POSTGRES_PASSWORD: organization_admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./dbdata/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U organization_admin -d organization_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: organization-admin-backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      DJANGO_DEBUG: "1"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,backend"
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: organization_admin
+      DB_USER: organization_admin
+      DB_PASSWORD: organization_admin
+      DB_HOST: db
+      DB_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: organization-admin-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    depends_on:
+      - backend

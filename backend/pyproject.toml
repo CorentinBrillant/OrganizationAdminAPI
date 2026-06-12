@@ -1,0 +1,12 @@
+[project]
+name = "organization-admin-backend"
+version = "0.1.0"
+description = "Backend API for OrganizationAdminAPI"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "Django==3.2.12",
+    "psycopg2-binary==2.9.10",
+]
+
+[tool.uv]
+package = false

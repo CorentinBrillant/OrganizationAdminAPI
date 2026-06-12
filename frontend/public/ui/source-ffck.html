@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Source FFCK Excel</title>
+  <style>
+    :root {
+      --bg: oklch(98% 0.005 250);
+      --surface: oklch(100% 0 0);
+      --fg: oklch(22% 0.02 240);
+      --muted: oklch(50% 0.018 240);
+      --border: oklch(90% 0.008 240);
+      --accent: oklch(58% 0.16 145);
+      --success: oklch(64% 0.16 145);
+      --warn: oklch(74% 0.16 78);
+      --danger: oklch(63% 0.2 28);
+      --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font-body); background: var(--bg); color: var(--fg); }
+    .layout { min-height: 100svh; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+    nav { position: sticky; top: 0; height: 100svh; overflow-y: auto; border-right: 1px solid var(--border); background: color-mix(in oklch, var(--surface) 94%, var(--accent)); padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .sidebar-main { display: grid; align-content: start; gap: 12px; }
+    .brand { font-weight: 700; letter-spacing: 0.02em; }
+    .campaign-switch { display: grid; gap: 6px; margin-top: 10px; margin-bottom: 8px; }
+    .campaign-switch label { font-size: .76rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .campaign-select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 30px 7px 10px; min-height: 36px; font: inherit; background: var(--surface); color: var(--fg); }
+    .campaign-actions { display: flex; gap: 6px; }
+    .campaign-actions .btn { width: 100%; }
+    .panel-title { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+    .source-config { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px; display: grid; gap: 8px; }
+    .source-config input { width: 100%; }
+    .source-row { display: flex; gap: 6px; align-items: center; }
+    .source-row .btn { white-space: nowrap; }
+    .micro { font-size: .78rem; color: var(--muted); }
+    .monitor { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px; }
+    .monitor-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+    .monitor-item { border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px; display: grid; gap: 3px; }
+    .monitor-item.is-active { border-color: color-mix(in oklch, var(--accent) 55%, var(--border)); background: color-mix(in oklch, var(--surface) 95%, var(--accent)); }
+    .monitor-item-head { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; }
+    .monitor-state { font-size: .76rem; color: var(--muted); }
+    .aside-tools { display: grid; gap: 8px; margin-top: 10px; }
+    .identity { font-size: .82rem; color: var(--muted); border: 1px solid var(--border); border-radius: 9px; padding: 8px 9px; background: var(--surface); }
+    .identity strong { color: var(--fg); display: block; }
+    .nav { display: grid; gap: 8px; }
+    .nav a { text-decoration: none; color: var(--fg); border: 1px solid transparent; border-radius: 9px; padding: 9px 10px; font-size: .92rem; }
+    .nav a.active { border-color: var(--border); background: color-mix(in oklch, var(--surface) 95%, var(--accent)); font-weight: 600; }
+    .sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+    .sidebar-footer .btn { width: 100%; }
+    main { padding: 18px; display: grid; gap: 12px; }
+    .head, .box, .table { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .head { padding: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+    .btn { border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklch, var(--accent) 16%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; padding: 7px 10px; cursor: pointer; }
+    .btn.subtle { background: var(--surface); color: var(--fg); }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+    .box { padding: 12px; }
+    .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .value { margin-top: 6px; font-family: var(--font-mono); font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+    .tool { display: flex; gap: 8px; flex-wrap: wrap; }
+    input, select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font: inherit; }
+    .table { overflow: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--border); padding: 10px; text-align: left; font-size: .9rem; white-space: nowrap; }
+    th { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); vertical-align: top; }
+    td[contenteditable='true'] { cursor: text; }
+    td[contenteditable='true']:focus { outline: 2px solid color-mix(in oklch, var(--accent) 45%, white); outline-offset: -2px; background: color-mix(in oklch, var(--accent) 7%, var(--surface)); }
+    .state { font-size: .76rem; letter-spacing: .02em; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--border); }
+    .ok { color: color-mix(in oklch, var(--success) 70%, black); }
+    .warn { color: color-mix(in oklch, var(--warn) 65%, black); }
+    .danger { color: color-mix(in oklch, var(--danger) 62%, black); }
+    .col-head { display: grid; gap: 6px; min-width: 150px; }
+    .col-actions { display: flex; gap: 4px; }
+    .icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: 6px; font-size: .7rem; line-height: 1; padding: 4px 6px; cursor: pointer; }
+    .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .hint { color: var(--muted); font-size: .82rem; }
+    html[data-theme="dark"], body[data-theme="dark"] {
+      --bg: oklch(17% 0.01 255);
+      --surface: oklch(22% 0.01 255);
+      --fg: oklch(95% 0.01 255);
+      --muted: oklch(76% 0.01 255);
+      --border: oklch(36% 0.01 255);
+      --accent: oklch(70% 0.14 150);
+    }
+    @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; } nav { position: static; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); } .grid { grid-template-columns: 1fr; } }
+    html[data-embedded="1"] .layout { grid-template-columns: minmax(0, 1fr) !important; }
+    html[data-embedded="1"] nav { display: none !important; }
+  </style>
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem('ffck:theme') || 'dark';
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.dataset.embedded = '1';
+    }
+  </script>
+</head>
+<body>
+  <div class="layout">
+    <nav>
+      <div class="sidebar-main">
+        <div class="brand">Suivi FFCK</div>
+        <div class="nav">
+          <a href="dashboard-fusion.html">Inscriptions</a>
+          <a href="source-helloasso.html">Source HelloAsso</a>
+          <a class="active" href="source-ffck.html">Source FFCK</a>
+          <a href="dedoublonnage-members.html">Dédoublonnage</a>
+          <a href="monitoring-campagnes.html">Monitoring des campagnes</a>
+        </div>
+        <div class="campaign-switch">
+          <label for="campaignSelect">Campagne</label>
+          <select id="campaignSelect" class="campaign-select" aria-label="Choisir la campagne d'inscription">
+            <option value="">Aucune campagne</option>
+          </select>
+          <div class="campaign-actions">
+            <button id="addCampaign" class="btn subtle" type="button">Nouvelle campagne</button>
+          </div>
+        </div>
+        <div class="aside-tools" aria-label="Préférences utilisateur">
+          <div class="identity" id="userIdentity" aria-live="polite"></div>
+          <button id="toggleTheme" class="btn subtle" type="button">Activer le mode sombre</button>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <section class="source-config" aria-label="Configuration des sources">
+          <div class="panel-title">Configuration des sources</div>
+          <label class="micro" for="helloAssoApiKey">Clé API HelloAsso</label>
+          <input id="helloAssoApiKey" type="password" placeholder="ha_live_..." autocomplete="off" />
+          <div class="source-row">
+            <button id="saveApiKey" class="btn subtle" type="button">Enregistrer</button>
+            <span id="apiKeyStatus" class="micro" aria-live="polite"></span>
+          </div>
+        </section>
+        <button id="authAction" class="btn subtle" type="button">Se déconnecter</button>
+      </div>
+    </nav>
+
+    <main>
+      <section class="head">
+        <div>
+          <h1 style="margin:0; font-size:1.35rem; letter-spacing:-.02em;">Import Excel FFCK</h1>
+          <div id="loadedFile" style="color:var(--muted)">Fichier chargé: —</div>
+        </div>
+        <button id="importFfckButton" class="btn" type="button">Importer un nouveau fichier</button>
+      </section>
+
+      <section class="grid">
+        <article class="box"><div class="label">Lignes importées</div><div class="value" id="kpiImported">0</div></article>
+        <article class="box"><div class="label">Licences reconnues</div><div class="value" id="kpiKnown">0</div></article>
+        <article class="box"><div class="label">Anomalies détectées</div><div class="value" id="kpiAnomalies">0</div></article>
+      </section>
+
+      <section class="box">
+        <div class="tool">
+          <input id="q" type="search" placeholder="Rechercher licence, nom, catégorie..." />
+          <select id="state">
+            <option value="all">Tous les statuts</option>
+            <option value="Valide">Valide</option>
+            <option value="Incomplet">Incomplet</option>
+            <option value="Erreur">Erreur</option>
+          </select>
+          <button id="resetCols" class="btn subtle" type="button">Réinitialiser les colonnes</button>
+        </div>
+        <p class="hint">Colonnes: ← et → pour déplacer, × pour supprimer. Double-cliquez une cellule pour l'éditer puis Entrée pour valider.</p>
+      </section>
+
+      <section class="table">
+        <table>
+          <thead>
+            <tr id="headRow"></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const sourceColumns = [
+      { key: 'nom', label: 'Nom' },
+      { key: 'prenom', label: 'Prénom' },
+      { key: 'licence', label: 'N° licence' },
+      { key: 'type_certificat', label: 'Type certificat' },
+      { key: 'expiration', label: 'Expiration' },
+      { key: 'type_licence', label: 'Type de licence' }
+    ];
+
+    const campaigns = {};
+
+    const campaignSelect = document.getElementById('campaignSelect');
+    const loadedFile = document.getElementById('loadedFile');
+    const kpiImported = document.getElementById('kpiImported');
+    const kpiKnown = document.getElementById('kpiKnown');
+    const kpiAnomalies = document.getElementById('kpiAnomalies');
+    const q = document.getElementById('q');
+    const state = document.getElementById('state');
+    const resetCols = document.getElementById('resetCols');
+    const headRow = document.getElementById('headRow');
+    const tbody = document.getElementById('rows');
+    const addCampaign = document.getElementById('addCampaign');
+    const toggleTheme = document.getElementById('toggleTheme');
+    const userIdentity = document.getElementById('userIdentity');
+    const authAction = document.getElementById('authAction');
+    const helloAssoApiKey = document.getElementById('helloAssoApiKey');
+    const saveApiKey = document.getElementById('saveApiKey');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
+    const campaignMonitor = document.getElementById('campaignMonitor');
+    const CAMPAIGN_STORE_KEY = 'ffck:campaign';
+    const CAMPAIGN_LIST_STORE_KEY = 'ffck:campaign:list';
+    const THEME_STORE_KEY = 'ffck:theme';
+    const USER_STORE_KEY = 'ffck:user';
+    const API_KEY_STORE_KEY = 'ffck:source:helloasso:apiKey';
+
+    const importFfckButton = document.getElementById('importFfckButton');
+
+    let campaignCatalog = [];
+    let activeCampaignIdFromReducer = null;
+    let importInProgress = false;
+    
+    let columns = sourceColumns.map((c) => ({ ...c }));
+    let activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || '';
+    let campaignOptions = [];
+
+    function shiftYearInText(text, year) {
+      return String(text).replace(/20\d{2}/g, String(year));
+    }
+
+    function createCampaignFromTemplate(year) {
+      campaigns[year] = {
+        fileLabel: 'Fichier chargé: —',
+        rows: []
+      };
+    }
+
+    function loadCampaignOptions() {
+      const stored = JSON.parse(localStorage.getItem(CAMPAIGN_LIST_STORE_KEY) || 'null');
+      campaignOptions = Array.isArray(stored) && stored.length > 0 ? stored.map((v) => String(v)) : [];
+      campaignOptions.forEach((key) => {
+        if (!campaigns[key]) createCampaignFromTemplate(key);
+      });
+      localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+    }
+
+    function renderCampaignOptions() {
+      if (!Array.isArray(campaignOptions) || campaignOptions.length === 0) {
+        activeCampaign = '';
+        campaignSelect.disabled = true;
+        campaignSelect.innerHTML = '<option value="">Aucune campagne</option>';
+        campaignSelect.value = '';
+        return;
+      }
+      campaignSelect.disabled = false;
+      campaignSelect.innerHTML = campaignOptions
+        .map((key) => `<option value="${key}">${formatCampaignLabel(key)}</option>`)
+        .join('');
+      if (!campaigns[activeCampaign]) activeCampaign = campaignOptions[campaignOptions.length - 1] || '';
+      campaignSelect.value = activeCampaign;
+    }
+
+    function formatCampaignLabel(name) {
+      return /^\d{4}$/.test(name) ? `Campagne ${name}` : name;
+    }
+
+    function normalizeCampaignTitle(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    async function loadCampaignCatalog(showErrors = false) {
+      try {
+        const response = await fetch('/api/campaigns/');
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (showErrors) {
+            const message = payload?.error || `Erreur HTTP ${response.status}`;
+            loadedFile.textContent = `Fichier chargé: erreur catalog campagne (${message})`;
+          }
+          return;
+        }
+
+        const list = Array.isArray(payload?.campaigns) ? payload.campaigns : [];
+        campaignCatalog = list
+          .map((campaign) => ({
+            id: Number(campaign?.id),
+            title: String(campaign?.title || '').trim()
+          }))
+          .filter((campaign) => Number.isFinite(campaign.id) && campaign.title);
+      } catch (_) {
+        if (showErrors) {
+          loadedFile.textContent = "Fichier chargé: impossible de joindre l'API campagnes";
+        }
+      }
+    }
+
+    function resolveActiveCampaign() {
+      if (Number.isFinite(activeCampaignIdFromReducer)) {
+        const byId = campaignCatalog.find((campaign) => campaign.id === activeCampaignIdFromReducer);
+        if (byId) return byId;
+      }
+
+      const normalized = normalizeCampaignTitle(activeCampaign);
+      if (!normalized) return null;
+      return campaignCatalog.find((campaign) => normalizeCampaignTitle(campaign.title) === normalized) || null;
+    }
+
+    function parseFilenameFromContentDisposition(value) {
+      const raw = String(value || '');
+      const utf8Match = raw.match(/filename\*=UTF-8''([^;]+)/i);
+      if (utf8Match && utf8Match[1]) return decodeURIComponent(utf8Match[1]);
+      const match = raw.match(/filename="?([^";]+)"?/i);
+      return match && match[1] ? match[1] : 'export.xlsx';
+    }
+
+    function mapReducerRowToSourceRow(row) {
+      const rawRow = row?.raw_row && typeof row.raw_row === 'object' ? row.raw_row : {};
+      const rawNom = String(rawRow.nom || '').trim();
+      const rawPrenom = String(rawRow.prenom || '').trim();
+      let fallbackNom = '';
+      let fallbackPrenom = '';
+      const fullName = String(row?.nom || '').trim();
+      if (!rawNom && !rawPrenom && fullName) {
+        const parts = fullName.split(/\s+/).filter(Boolean);
+        if (parts.length > 1) {
+          fallbackNom = parts[0];
+          fallbackPrenom = parts.slice(1).join(' ');
+        } else {
+          fallbackNom = fullName;
+        }
+      }
+      return {
+        nom: rawNom || fallbackNom,
+        prenom: rawPrenom || fallbackPrenom,
+        licence: String(rawRow['code adherent'] || row?.licence || '').trim(),
+        type_certificat: String(rawRow['type certificat'] || '').trim(),
+        expiration: String(rawRow['date de fin certificat medical'] || '').trim(),
+        type_licence: String(rawRow['type licence'] || '').trim()
+      };
+    }
+
+    async function importLatestFfckExcel() {
+      if (importInProgress) return;
+
+      if (!activeCampaign) {
+        loadedFile.textContent = "Fichier chargé: sélectionne une campagne avant l'import";
+        return;
+      }
+
+      importInProgress = true;
+      importFfckButton.disabled = true;
+      const initialButtonLabel = importFfckButton.textContent;
+      importFfckButton.textContent = 'Import en cours...';
+
+      try {
+        if (campaignCatalog.length === 0) {
+          await loadCampaignCatalog(true);
+        }
+
+        const campaign = resolveActiveCampaign();
+        if (!campaign) {
+          loadedFile.textContent = `Fichier chargé: campagne "${activeCampaign}" introuvable côté API`;
+          return;
+        }
+
+        const params = new URLSearchParams({ campaignId: String(campaign.id) });
+        const response = await fetch(`/api/federation/extract-excel/?${params.toString()}`);
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          const message = payload?.error || `Erreur HTTP ${response.status}`;
+          loadedFile.textContent = `Fichier chargé: échec import (${message})`;
+          return;
+        }
+
+        await response.arrayBuffer();
+
+        const filename = parseFilenameFromContentDisposition(response.headers.get('Content-Disposition'));
+        const rowsCount = Number(response.headers.get('X-FFCK-Rows-Count'));
+        const when = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date());
+        const suffix = Number.isFinite(rowsCount) ? ` • ${rowsCount} lignes` : '';
+
+        if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+        campaigns[activeCampaign].fileLabel = `Fichier chargé: ${filename} (${when})${suffix}`;
+
+        renderCampaignInfo();
+        renderCampaignMonitor();
+        render();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        loadedFile.textContent = `Fichier chargé: échec import (${message})`;
+      } finally {
+        importInProgress = false;
+        importFfckButton.disabled = false;
+        importFfckButton.textContent = initialButtonLabel;
+      }
+    }
+
+    function currentRows() {
+      const campaign = campaigns[activeCampaign];
+      return campaign && Array.isArray(campaign.rows) ? campaign.rows : [];
+    }
+
+    function badgeClass(text) {
+      if (text === 'Valide') return 'ok';
+      if (text === 'Incomplet') return 'warn';
+      return 'danger';
+    }
+
+    function filterRows() {
+      const query = q.value.trim().toLowerCase();
+      return currentRows().filter((r) => {
+        const text = Object.values(r).join(' ').toLowerCase();
+        const matchesText = text.includes(query);
+        return matchesText;
+      });
+    }
+
+    function renderHeader() {
+      headRow.innerHTML = columns.map((col, i) => `
+        <th>
+          <div class="col-head">
+            <span>${col.label}</span>
+            <div class="col-actions">
+              <button class="icon-btn" type="button" data-action="left" data-index="${i}" ${i === 0 ? 'disabled' : ''}>←</button>
+              <button class="icon-btn" type="button" data-action="right" data-index="${i}" ${i === columns.length - 1 ? 'disabled' : ''}>→</button>
+              <button class="icon-btn" type="button" data-action="delete" data-index="${i}" ${columns.length === 1 ? 'disabled' : ''}>×</button>
+            </div>
+          </div>
+        </th>
+      `).join('');
+    }
+
+    function renderRows() {
+      const visibleRows = filterRows();
+      tbody.innerHTML = visibleRows.map((record, rowIdx) => `
+        <tr>
+          ${columns.map((col) => {
+            const raw = record[col.key] ?? '';
+            return `<td contenteditable="true" data-row="${rowIdx}" data-key="${col.key}">${raw}</td>`;
+          }).join('')}
+        </tr>
+      `).join('');
+    }
+
+    function render() {
+      renderHeader();
+      renderRows();
+    }
+
+    function applyTheme() {
+      const savedTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark';
+      const nextTheme = savedTheme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = nextTheme;
+      document.body.dataset.theme = nextTheme;
+      toggleTheme.textContent = nextTheme === 'dark'
+        ? 'Activer le mode clair'
+        : 'Activer le mode sombre';
+    }
+
+    function maskApiKey(value) {
+      if (!value) return '';
+      if (value.length <= 6) return '••••••';
+      return `${value.slice(0, 3)}••••${value.slice(-3)}`;
+    }
+
+    function renderApiKeyState() {
+      const key = localStorage.getItem(API_KEY_STORE_KEY) || '';
+      helloAssoApiKey.value = key;
+      apiKeyStatus.textContent = key ? `Clé enregistrée (${maskApiKey(key)})` : 'Aucune clé enregistrée';
+    }
+
+    function parseUser() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(USER_STORE_KEY) || 'null');
+        if (parsed && parsed.name) return parsed;
+      } catch (_) {}
+      return null;
+    }
+
+    function ensureDefaultUser() {
+      if (!parseUser()) {
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: 'Utilisateur bureau directeur', role: 'Bureau directeur' }));
+      }
+    }
+
+    function renderUserIdentity() {
+      const user = parseUser();
+      if (user) {
+        userIdentity.innerHTML = `<strong>${user.name}</strong><span>${user.role || 'Connecté'}</span>`;
+        authAction.textContent = 'Se déconnecter';
+      } else {
+        userIdentity.textContent = 'Aucun utilisateur connecté';
+        authAction.textContent = 'Se connecter';
+      }
+    }
+
+    function extractFileDate(fileLabel) {
+      const match = String(fileLabel || '').match(/(\d{4}-\d{2}-\d{2})/);
+      return match ? match[1] : '—';
+    }
+
+    function campaignSnapshot(name) {
+      const data = campaigns[name];
+      if (!data) return { status: 'Inconnu', date: '—', etat: '—' };
+      const anomalies = data.rows.filter((r) => r.statut !== 'Valide').length;
+      const status = anomalies > 0 ? 'À contrôler' : 'Stable';
+      const etat = name === activeCampaign ? 'Campagne active' : 'Campagne ouverte';
+      return { status, date: extractFileDate(data.fileLabel), etat };
+    }
+
+    function renderCampaignMonitor() {
+      if (!campaignMonitor) return;
+      campaignMonitor.innerHTML = campaignOptions.map((name) => {
+        const snap = campaignSnapshot(name);
+        const activeClass = name === activeCampaign ? ' is-active' : '';
+        return `<li class="monitor-item${activeClass}"><div class="monitor-item-head"><strong>${formatCampaignLabel(name)}</strong><span>${snap.status}</span></div><div class="monitor-state">${snap.date}</div><div class="monitor-state">${snap.etat}</div></li>`;
+      }).join('');
+    }
+
+    function renderCampaignInfo() {
+      const rows = currentRows();
+      const validCount = rows.length;
+      const anomalyCount = 0;
+      loadedFile.textContent = campaigns[activeCampaign]?.fileLabel || 'Fichier chargé: —';
+      kpiImported.textContent = String(rows.length);
+      kpiKnown.textContent = String(validCount);
+      kpiAnomalies.textContent = String(anomalyCount);
+    }
+
+    headRow.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-action]');
+      if (!btn) return;
+      const index = Number(btn.dataset.index);
+      const action = btn.dataset.action;
+      if (action === 'left' && index > 0) [columns[index], columns[index - 1]] = [columns[index - 1], columns[index]];
+      if (action === 'right' && index < columns.length - 1) [columns[index], columns[index + 1]] = [columns[index + 1], columns[index]];
+      if (action === 'delete' && columns.length > 1) columns.splice(index, 1);
+      render();
+    });
+
+    tbody.addEventListener('dblclick', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      if (cell.querySelector('.state')) cell.textContent = cell.textContent.trim();
+      cell.focus();
+      document.execCommand('selectAll', false, null);
+    });
+
+    tbody.addEventListener('keydown', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        cell.blur();
+      }
+    });
+
+    tbody.addEventListener('blur', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      const visibleRows = filterRows();
+      const row = visibleRows[Number(cell.dataset.row)];
+      if (!row) return;
+      row[cell.dataset.key] = cell.textContent.trim();
+      renderRows();
+    }, true);
+
+    q.addEventListener('input', renderRows);
+    state.addEventListener('change', renderRows);
+    resetCols.addEventListener('click', () => {
+      columns = sourceColumns.map((c) => ({ ...c }));
+      render();
+    });
+    campaignSelect.addEventListener('change', () => {
+      activeCampaign = campaignSelect.value;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      q.value = '';
+      state.value = 'all';
+      renderCampaignInfo();
+      renderCampaignMonitor();
+      render();
+    });
+    addCampaign.addEventListener('click', () => {
+      const name = window.prompt('Nom de la nouvelle campagne ?', `Campagne ${new Date().getFullYear() + 1}`);
+      if (!name) return;
+      const normalized = name.trim().replace(/\s+/g, ' ');
+      if (!normalized) return;
+      const existing = campaignOptions.find((value) => value.toLowerCase() === normalized.toLowerCase());
+      const campaignKey = existing || normalized;
+      if (!existing) {
+        campaignOptions.push(campaignKey);
+        createCampaignFromTemplate(campaignKey);
+        localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+        renderCampaignOptions();
+      }
+      activeCampaign = campaignKey;
+      campaignSelect.value = campaignKey;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, campaignKey);
+      renderCampaignInfo();
+      renderCampaignMonitor();
+      render();
+    });
+    importFfckButton.addEventListener('click', importLatestFfckExcel);
+    saveApiKey.addEventListener('click', () => {
+      const key = helloAssoApiKey.value.trim();
+      if (!key) localStorage.removeItem(API_KEY_STORE_KEY);
+      else localStorage.setItem(API_KEY_STORE_KEY, key);
+      renderApiKeyState();
+    });
+    toggleTheme.addEventListener('click', () => {
+      const isDark = document.body.dataset.theme === 'dark';
+      localStorage.setItem(THEME_STORE_KEY, isDark ? 'light' : 'dark');
+      applyTheme();
+    });
+    authAction.addEventListener('click', () => {
+      const current = parseUser();
+      if (current) {
+        localStorage.removeItem(USER_STORE_KEY);
+      } else {
+        const name = window.prompt('Nom de l’utilisateur à connecter ?', 'Utilisateur bureau directeur');
+        if (!name) return;
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: name.trim(), role: 'Bureau directeur' }));
+      }
+      renderUserIdentity();
+    });
+
+    window.addEventListener('storage', (event) => {
+      if (!event.key || event.key === THEME_STORE_KEY) applyTheme();
+      if (!event.key || event.key === USER_STORE_KEY) renderUserIdentity();
+      if (!event.key || event.key === API_KEY_STORE_KEY) renderApiKeyState();
+      if (!event.key || event.key === CAMPAIGN_LIST_STORE_KEY) {
+        loadCampaignOptions();
+        renderCampaignOptions();
+      }
+      if (!event.key || event.key === CAMPAIGN_STORE_KEY || event.key === CAMPAIGN_LIST_STORE_KEY) {
+        activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || activeCampaign;
+        renderCampaignOptions();
+        renderCampaignInfo();
+        renderCampaignMonitor();
+        render();
+      }
+    });
+
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ffck:activeCampaignContext') return;
+
+      const nextCampaignTitle =
+        typeof event.data?.campaignTitle === 'string' ? event.data.campaignTitle.trim() : '';
+      const nextCampaignId = Number(event.data?.campaignId);
+      activeCampaignIdFromReducer = Number.isFinite(nextCampaignId) ? nextCampaignId : null;
+      const nextFfckRows = Array.isArray(event.data?.ffckRows) ? event.data.ffckRows : null;
+      const nextFfckExportMeta =
+        event.data?.ffckExportMeta && typeof event.data.ffckExportMeta === 'object'
+          ? event.data.ffckExportMeta
+          : null;
+
+      if (!nextCampaignTitle) return;
+      activeCampaign = nextCampaignTitle;
+      if (!campaignOptions.includes(activeCampaign)) {
+        campaignOptions.push(activeCampaign);
+        if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+        localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+      }
+      if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+      if (nextFfckRows) {
+        campaigns[activeCampaign].rows = nextFfckRows.map(mapReducerRowToSourceRow);
+      }
+      if (nextFfckExportMeta) {
+        const filename = String(nextFfckExportMeta.filename || 'export.xlsx').trim() || 'export.xlsx';
+        const fetchedAt = String(nextFfckExportMeta.fetched_at || '').trim();
+        const rowsCount = Number(nextFfckExportMeta.rows_count);
+        const when = fetchedAt
+          ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(fetchedAt))
+          : new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date());
+        const suffix = Number.isFinite(rowsCount) ? ` • ${rowsCount} lignes` : '';
+        campaigns[activeCampaign].fileLabel = `Fichier chargé: ${filename} (${when})${suffix}`;
+      }
+      localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      renderCampaignOptions();
+      renderCampaignInfo();
+      renderCampaignMonitor();
+      render();
+    });
+
+    loadCampaignOptions();
+    renderCampaignOptions();
+    loadCampaignCatalog(false);
+    ensureDefaultUser();
+    applyTheme();
+    renderUserIdentity();
+    renderApiKeyState();
+    renderCampaignInfo();
+    renderCampaignMonitor();
+    render();
+  </script>
+</body>
+</html>

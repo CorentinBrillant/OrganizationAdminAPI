@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Source HelloAsso</title>
+  <style>
+    :root {
+      --bg: oklch(98% 0.005 250);
+      --surface: oklch(100% 0 0);
+      --fg: oklch(22% 0.02 240);
+      --muted: oklch(50% 0.018 240);
+      --border: oklch(90% 0.008 240);
+      --accent: oklch(58% 0.16 145);
+      --success: oklch(64% 0.16 145);
+      --warn: oklch(74% 0.16 78);
+      --danger: oklch(63% 0.2 28);
+      --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font-body); background: var(--bg); color: var(--fg); }
+    .app { min-height: 100svh; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+    nav { position: sticky; top: 0; height: 100svh; overflow-y: auto; border-right: 1px solid var(--border); padding: 18px; background: color-mix(in oklch, var(--surface) 94%, var(--accent)); display: flex; flex-direction: column; gap: 12px; }
+    .sidebar-main { display: grid; align-content: start; gap: 12px; }
+    .brand { font-weight: 700; letter-spacing: 0.02em; }
+    .campaign-switch { display: grid; gap: 6px; margin-top: 10px; margin-bottom: 8px; }
+    .campaign-switch label { font-size: .76rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .campaign-select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 30px 7px 10px; min-height: 36px; font: inherit; background: var(--surface); color: var(--fg); }
+    .campaign-actions { display: flex; gap: 6px; }
+    .campaign-actions .btn { width: 100%; }
+    .panel-title { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+    .source-config { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px; display: grid; gap: 8px; }
+    .source-config input { width: 100%; }
+    .source-row { display: flex; gap: 6px; align-items: center; }
+    .source-row .btn { white-space: nowrap; }
+    .micro { font-size: .78rem; color: var(--muted); }
+    .monitor { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px; }
+    .monitor-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+    .monitor-item { border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px; display: grid; gap: 3px; }
+    .monitor-item.is-active { border-color: color-mix(in oklch, var(--accent) 55%, var(--border)); background: color-mix(in oklch, var(--surface) 95%, var(--accent)); }
+    .monitor-item-head { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; }
+    .monitor-state { font-size: .76rem; color: var(--muted); }
+    .aside-tools { display: grid; gap: 8px; margin-top: 10px; }
+    .identity { font-size: .82rem; color: var(--muted); border: 1px solid var(--border); border-radius: 9px; padding: 8px 9px; background: var(--surface); }
+    .identity strong { color: var(--fg); display: block; }
+    .nav { display: grid; gap: 8px; }
+    .nav a { text-decoration: none; color: var(--fg); border: 1px solid transparent; padding: 9px 10px; border-radius: 9px; font-size: .92rem; }
+    .nav a.active { border-color: var(--border); background: color-mix(in oklch, var(--surface) 95%, var(--accent)); font-weight: 600; }
+    .sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+    .sidebar-footer .btn { width: 100%; }
+    main { padding: 18px; display: grid; gap: 12px; }
+    .head { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 12px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .btn { border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklch, var(--accent) 16%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; padding: 7px 10px; cursor: pointer; }
+    .btn.subtle { background: var(--surface); color: var(--fg); }
+    .row { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+    .box { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 12px; }
+    .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .value { margin-top: 6px; font-family: var(--font-mono); font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+    .table { border: 1px solid var(--border); border-radius: 12px; overflow: auto; background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--border); text-align: left; padding: 10px; font-size: .9rem; white-space: nowrap; }
+    th { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); vertical-align: top; }
+    td[contenteditable='true'] { cursor: text; }
+    td[contenteditable='true']:focus { outline: 2px solid color-mix(in oklch, var(--accent) 45%, white); outline-offset: -2px; background: color-mix(in oklch, var(--accent) 7%, var(--surface)); }
+    .state { font-size: .76rem; letter-spacing: .02em; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--border); }
+    .ok { color: color-mix(in oklch, var(--success) 70%, black); }
+    .warn { color: color-mix(in oklch, var(--warn) 65%, black); }
+    .tool { display: flex; gap: 8px; flex-wrap: wrap; }
+    input { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: var(--surface); }
+    .col-head { display: grid; gap: 6px; min-width: 150px; }
+    .col-actions { display: flex; gap: 4px; }
+    .icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: 6px; font-size: .7rem; line-height: 1; padding: 4px 6px; cursor: pointer; }
+    .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .hint { color: var(--muted); font-size: .82rem; }
+    html[data-theme="dark"], body[data-theme="dark"] {
+      --bg: oklch(17% 0.01 255);
+      --surface: oklch(22% 0.01 255);
+      --fg: oklch(95% 0.01 255);
+      --muted: oklch(76% 0.01 255);
+      --border: oklch(36% 0.01 255);
+      --accent: oklch(70% 0.14 150);
+    }
+    @media (max-width: 1024px) { .app { grid-template-columns: 1fr; } nav { position: static; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border);} .row { grid-template-columns: 1fr; } }
+    html[data-embedded="1"] .app { grid-template-columns: minmax(0, 1fr) !important; }
+    html[data-embedded="1"] nav { display: none !important; }
+  </style>
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem('ffck:theme') || 'dark';
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.dataset.embedded = '1';
+    }
+  </script>
+</head>
+<body>
+  <div class="app">
+    <nav>
+      <div class="sidebar-main">
+        <div class="brand">Suivi FFCK</div>
+        <div class="nav">
+          <a href="dashboard-fusion.html">Inscriptions</a>
+          <a class="active" href="source-helloasso.html">Source HelloAsso</a>
+          <a href="source-ffck.html">Source FFCK</a>
+          <a href="dedoublonnage-members.html">Dédoublonnage</a>
+          <a href="monitoring-campagnes.html">Monitoring des campagnes</a>
+        </div>
+        <div class="campaign-switch">
+          <label for="campaignSelect">Campagne</label>
+          <select id="campaignSelect" class="campaign-select" aria-label="Choisir la campagne d'inscription">
+            <option value="">Aucune campagne</option>
+          </select>
+          <div class="campaign-actions">
+            <button id="addCampaign" class="btn subtle" type="button">Nouvelle campagne</button>
+          </div>
+        </div>
+        <div class="aside-tools" aria-label="Préférences utilisateur">
+          <div class="identity" id="userIdentity" aria-live="polite"></div>
+          <button id="toggleTheme" class="btn subtle" type="button">Activer le mode sombre</button>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <section class="source-config" aria-label="Configuration des sources">
+          <div class="panel-title">Configuration des sources</div>
+          <label class="micro" for="helloAssoApiKey">Clé API HelloAsso</label>
+          <input id="helloAssoApiKey" type="password" placeholder="ha_live_..." autocomplete="off" />
+          <div class="source-row">
+            <button id="saveApiKey" class="btn subtle" type="button">Enregistrer</button>
+            <span id="apiKeyStatus" class="micro" aria-live="polite"></span>
+          </div>
+        </section>
+        <button id="authAction" class="btn subtle" type="button">Se déconnecter</button>
+      </div>
+    </nav>
+    <main>
+      <section class="head">
+        <div>
+          <h1 style="margin:0; font-size:1.35rem; letter-spacing:-.02em;">Flux API HelloAsso</h1>
+          <div id="syncInfo" style="color:var(--muted)">Dernière synchronisation: —</div>
+        </div>
+        <button id="resyncHelloAsso" class="btn" type="button">Relancer la synchronisation</button>
+      </section>
+
+      <section class="row">
+        <article class="box"><div class="label">Enregistrements reçus</div><div class="value" id="kpiReceived">0</div></article>
+        <article class="box"><div class="label">Lignes valides</div><div class="value" id="kpiValid">0</div></article>
+        <article class="box"><div class="label">Erreurs de mapping</div><div class="value" id="kpiErrors">0</div></article>
+      </section>
+
+      <section class="box">
+        <div class="tool">
+          <input id="q" type="search" placeholder="Filtrer prénom, nom, email, inscription, montant..." />
+          <button id="toggleInvalid" class="btn" type="button">Afficher uniquement les anomalies</button>
+          <button id="resetCols" class="btn subtle" type="button">Réinitialiser les colonnes</button>
+        </div>
+        <p class="hint">Colonnes: ← et → pour déplacer, × pour supprimer. Double-cliquez une cellule pour l'éditer puis Entrée pour valider.</p>
+      </section>
+
+      <section class="table">
+        <table>
+          <thead>
+            <tr id="headRow"></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const sourceColumns = [
+      { key: 'prenom', label: 'Prénom' },
+      { key: 'nom', label: 'Nom' },
+      { key: 'email', label: 'Email' },
+      { key: 'inscription', label: 'Inscription choisie' },
+      { key: 'montant', label: 'Montant (€)' }
+    ];
+
+    const campaigns = {};
+
+    const campaignSelect = document.getElementById('campaignSelect');
+    const syncInfo = document.getElementById('syncInfo');
+    const kpiReceived = document.getElementById('kpiReceived');
+    const kpiValid = document.getElementById('kpiValid');
+    const kpiErrors = document.getElementById('kpiErrors');
+    const headRow = document.getElementById('headRow');
+    const tbody = document.getElementById('rows');
+    const q = document.getElementById('q');
+    const toggleInvalid = document.getElementById('toggleInvalid');
+    const resetCols = document.getElementById('resetCols');
+    const addCampaign = document.getElementById('addCampaign');
+    const toggleTheme = document.getElementById('toggleTheme');
+    const userIdentity = document.getElementById('userIdentity');
+    const authAction = document.getElementById('authAction');
+    const helloAssoApiKey = document.getElementById('helloAssoApiKey');
+    const saveApiKey = document.getElementById('saveApiKey');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
+    const campaignMonitor = document.getElementById('campaignMonitor');
+    const resyncHelloAsso = document.getElementById('resyncHelloAsso');
+    const CAMPAIGN_STORE_KEY = 'ffck:campaign';
+    const CAMPAIGN_LIST_STORE_KEY = 'ffck:campaign:list';
+    const THEME_STORE_KEY = 'ffck:theme';
+    const USER_STORE_KEY = 'ffck:user';
+    const API_KEY_STORE_KEY = 'ffck:source:helloasso:apiKey';
+    const SOURCE_HELLOASSO_CAMPAIGN_CATALOG_KEY = 'ffck:source-helloasso:campaign-catalog:v1';
+    const isEmbedded = new URLSearchParams(window.location.search).get('embedded') === '1';
+    
+    let onlyInvalid = false;
+    let columns = sourceColumns.map((c) => ({ ...c }));
+    let activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || '';
+    let activeCampaignIdFromReducer = null;
+    let hasCampaignContextFromParent = false;
+    let campaignOptions = [];
+    let campaignCatalog = [];
+    let syncInProgress = false;
+
+    function createCampaignFromTemplate(year) {
+      campaigns[year] = {
+        syncLabel: `Dernière synchronisation: —`,
+        rows: []
+      };
+    }
+
+    function loadCampaignOptions() {
+      const stored = JSON.parse(localStorage.getItem(CAMPAIGN_LIST_STORE_KEY) || 'null');
+      campaignOptions = Array.isArray(stored) && stored.length > 0 ? stored.map((v) => String(v)) : [];
+      campaignOptions.forEach((key) => {
+        if (!campaigns[key]) createCampaignFromTemplate(key);
+      });
+      localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+    }
+
+    function renderCampaignOptions() {
+      if (!Array.isArray(campaignOptions) || campaignOptions.length === 0) {
+        activeCampaign = '';
+        campaignSelect.disabled = true;
+        campaignSelect.innerHTML = '<option value="">Aucune campagne</option>';
+        campaignSelect.value = '';
+        return;
+      }
+      campaignSelect.disabled = false;
+      campaignSelect.innerHTML = campaignOptions
+        .map((key) => `<option value="${key}">${formatCampaignLabel(key)}</option>`)
+        .join('');
+      if (!campaigns[activeCampaign]) activeCampaign = campaignOptions[campaignOptions.length - 1] || '';
+      campaignSelect.value = activeCampaign;
+    }
+
+    function formatCampaignLabel(name) {
+      return /^\d{4}$/.test(name) ? `Campagne ${name}` : name;
+    }
+
+    function normalizeCampaignKey(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/^campagne\s+/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function findCampaignByTitle(title) {
+      const normalizedTitle = normalizeCampaignKey(title);
+      return campaignCatalog.find((campaign) => normalizeCampaignKey(campaign.title) === normalizedTitle) || null;
+    }
+
+    function findCampaignById(campaignId) {
+      const normalizedId = Number(campaignId);
+      if (!Number.isFinite(normalizedId)) return null;
+      return campaignCatalog.find((campaign) => Number(campaign.id) === normalizedId) || null;
+    }
+
+    function resolveActiveCampaign() {
+      const byReducerId = findCampaignById(activeCampaignIdFromReducer);
+      if (byReducerId) return byReducerId;
+      return findCampaignByTitle(activeCampaign);
+    }
+
+    function parseCampaignCatalogCache() {
+      try {
+        const parsed = JSON.parse(sessionStorage.getItem(SOURCE_HELLOASSO_CAMPAIGN_CATALOG_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function normalizeCampaignCatalogList(list) {
+      return list
+        .map((campaign) => ({
+          id: Number(campaign?.id),
+          title: String(campaign?.title || '').trim()
+        }))
+        .filter((campaign) => Number.isFinite(campaign.id) && campaign.title);
+    }
+
+    function applyCampaignCatalog(list) {
+      campaignCatalog = normalizeCampaignCatalogList(list);
+    }
+
+    async function loadCampaignCatalog(forceFetch = false) {
+      try {
+        if (!forceFetch) {
+          const cachedList = parseCampaignCatalogCache();
+          if (cachedList.length > 0) {
+            applyCampaignCatalog(cachedList);
+            return;
+          }
+        }
+        const response = await fetch('/api/campaigns/');
+        if (!response.ok) {
+          campaignCatalog = [];
+          return;
+        }
+        const payload = await response.json();
+        const list = Array.isArray(payload?.campaigns) ? payload.campaigns : [];
+        applyCampaignCatalog(list);
+        sessionStorage.setItem(SOURCE_HELLOASSO_CAMPAIGN_CATALOG_KEY, JSON.stringify(list));
+      } catch (_) {
+        campaignCatalog = [];
+      }
+    }
+
+    function formatSyncDate(date) {
+      return new Intl.DateTimeFormat('fr-FR', {
+        dateStyle: 'short',
+        timeStyle: 'short'
+      }).format(date);
+    }
+
+    function formatApiDateTime(value) {
+      if (!value) return '—';
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return String(value);
+      return formatSyncDate(parsed);
+    }
+
+    function pickFirstString(...candidates) {
+      for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+      }
+      return '';
+    }
+
+    function normalizeAmountToEuro(raw) {
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return Number.isInteger(raw) ? raw / 100 : raw;
+      }
+      if (typeof raw === 'string' && raw.trim()) {
+        const value = raw.trim().replace(',', '.');
+        if (/^-?\d+$/.test(value)) return Number(value) / 100;
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return null;
+    }
+
+    function extractAmountValue(item) {
+      const raw = item?.amount;
+      const direct = normalizeAmountToEuro(raw);
+      if (Number.isFinite(direct)) return direct;
+      if (raw && typeof raw === 'object') {
+        const candidates = [raw.total, raw.totalAmount, raw.amount, raw.value];
+        for (const candidate of candidates) {
+          const normalized = normalizeAmountToEuro(candidate);
+          if (Number.isFinite(normalized)) return normalized;
+        }
+      }
+      return null;
+    }
+
+    function formatEuro(value) {
+      if (!Number.isFinite(value)) return '—';
+      return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
+        currency: 'EUR'
+      }).format(value);
+    }
+
+    function mapHelloAssoItemToRow(item) {
+      const prenom = pickFirstString(item?.user?.firstName, item?.payer?.firstName);
+      const nom = pickFirstString(item?.user?.lastName, item?.payer?.lastName);
+      const email = pickFirstString(item?.user?.email, item?.payer?.email);
+      const inscription = pickFirstString(item?.name, item?.order?.formName, item?.order?.formSlug);
+      const amount = extractAmountValue(item);
+      const isValid = [prenom, nom, email, inscription].every((value) => Boolean(value));
+      return {
+        prenom: prenom || '—',
+        nom: nom || '—',
+        email: email || '—',
+        inscription: inscription || '—',
+        montant: formatEuro(amount),
+        valid: isValid ? 'Valide' : 'À corriger'
+      };
+    }
+
+    async function loadLatestItemsForActiveCampaign() {
+      if (!activeCampaign) {
+        renderCampaignInfo();
+        renderCampaignMonitor();
+        render();
+        return;
+      }
+      if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+      if (campaignCatalog.length === 0) {
+        await loadCampaignCatalog(false);
+      }
+
+      const campaign = resolveActiveCampaign();
+      if (!campaign) {
+        campaigns[activeCampaign].rows = [];
+        campaigns[activeCampaign].syncLabel = 'Dernière synchronisation: —';
+        renderCampaignInfo();
+        renderCampaignMonitor();
+        render();
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/helloasso/items/latest/?campaignId=${encodeURIComponent(String(campaign.id))}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          return;
+        }
+
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        campaigns[activeCampaign].rows = items.map(mapHelloAssoItemToRow);
+        const fetchedAt = payload?.import?.fetched_at;
+        if (fetchedAt) {
+          campaigns[activeCampaign].syncLabel = `Dernière synchronisation: ${formatApiDateTime(fetchedAt)} • ${items.length} entrées`;
+        } else {
+          campaigns[activeCampaign].syncLabel = 'Dernière synchronisation: —';
+        }
+        renderCampaignInfo();
+        renderCampaignMonitor();
+        render();
+      } catch (_) {
+        // Keep current table content when API is unavailable.
+      }
+    }
+
+    function currentRecords() {
+      const campaign = campaigns[activeCampaign];
+      return campaign && Array.isArray(campaign.rows) ? campaign.rows : [];
+    }
+
+    function toBadge(value) {
+      const cls = value === 'Valide' ? 'ok' : 'warn';
+      return `<span class="state ${cls}">${value}</span>`;
+    }
+
+    function moveColumn(index, dir) {
+      const target = index + dir;
+      if (target < 0 || target >= columns.length) return;
+      [columns[index], columns[target]] = [columns[target], columns[index]];
+      render();
+    }
+
+    function removeColumn(index) {
+      if (columns.length <= 1) return;
+      columns.splice(index, 1);
+      render();
+    }
+
+    function renderHeader() {
+      headRow.innerHTML = columns.map((col, i) => `
+        <th>
+          <div class="col-head">
+            <span>${col.label}</span>
+            <div class="col-actions">
+              <button class="icon-btn" type="button" data-action="left" data-index="${i}" ${i === 0 ? 'disabled' : ''}>←</button>
+              <button class="icon-btn" type="button" data-action="right" data-index="${i}" ${i === columns.length - 1 ? 'disabled' : ''}>→</button>
+              <button class="icon-btn" type="button" data-action="delete" data-index="${i}" ${columns.length === 1 ? 'disabled' : ''}>×</button>
+            </div>
+          </div>
+        </th>
+      `).join('');
+    }
+
+    function renderRows() {
+      const query = q.value.trim().toLowerCase();
+      const filtered = currentRecords().filter((r) => {
+        const text = Object.values(r).join(' ').toLowerCase();
+        const textMatch = text.includes(query);
+        const stateMatch = !onlyInvalid || r.valid !== 'Valide';
+        return textMatch && stateMatch;
+      });
+
+      tbody.innerHTML = filtered.map((record, rowIdx) => `
+        <tr>
+          ${columns.map((col) => {
+            const raw = record[col.key] ?? '';
+            const cellContent = col.key === 'valid' ? toBadge(raw) : raw;
+            return `<td contenteditable="true" data-row="${rowIdx}" data-key="${col.key}">${cellContent}</td>`;
+          }).join('')}
+        </tr>
+      `).join('');
+    }
+
+    function render() {
+      renderHeader();
+      renderRows();
+    }
+
+    headRow.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const index = Number(btn.dataset.index);
+      if (action === 'left') moveColumn(index, -1);
+      if (action === 'right') moveColumn(index, 1);
+      if (action === 'delete') removeColumn(index);
+    });
+
+    tbody.addEventListener('dblclick', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      if (cell.querySelector('.state')) {
+        cell.textContent = cell.textContent.trim();
+      }
+      cell.focus();
+      document.execCommand('selectAll', false, null);
+    });
+
+    tbody.addEventListener('keydown', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        cell.blur();
+      }
+    });
+
+    tbody.addEventListener('blur', (event) => {
+      const cell = event.target.closest('td[contenteditable="true"]');
+      if (!cell) return;
+      const visibleRows = currentRecords().filter((r) => {
+        const query = q.value.trim().toLowerCase();
+        const text = Object.values(r).join(' ').toLowerCase();
+        const textMatch = text.includes(query);
+        const stateMatch = !onlyInvalid || r.valid !== 'Valide';
+        return textMatch && stateMatch;
+      });
+      const row = visibleRows[Number(cell.dataset.row)];
+      if (!row) return;
+      row[cell.dataset.key] = cell.textContent.trim();
+      renderRows();
+    }, true);
+
+    function renderCampaignInfo() {
+      const rows = currentRecords();
+      const validCount = rows.filter((r) => r.valid === 'Valide').length;
+      const campaign = campaigns[activeCampaign];
+      syncInfo.textContent = campaign?.syncLabel || 'Dernière synchronisation: —';
+      kpiReceived.textContent = String(rows.length);
+      kpiValid.textContent = String(validCount);
+      kpiErrors.textContent = String(rows.length - validCount);
+    }
+
+    function applyTheme() {
+      const savedTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark';
+      const nextTheme = savedTheme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = nextTheme;
+      document.body.dataset.theme = nextTheme;
+      toggleTheme.textContent = nextTheme === 'dark'
+        ? 'Activer le mode clair'
+        : 'Activer le mode sombre';
+    }
+
+    function maskApiKey(value) {
+      if (!value) return '';
+      if (value.length <= 6) return '••••••';
+      return `${value.slice(0, 3)}••••${value.slice(-3)}`;
+    }
+
+    function renderApiKeyState() {
+      const key = localStorage.getItem(API_KEY_STORE_KEY) || '';
+      helloAssoApiKey.value = key;
+      apiKeyStatus.textContent = key ? `Clé enregistrée (${maskApiKey(key)})` : 'Aucune clé enregistrée';
+    }
+
+    function parseUser() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(USER_STORE_KEY) || 'null');
+        if (parsed && parsed.name) return parsed;
+      } catch (_) {}
+      return null;
+    }
+
+    function ensureDefaultUser() {
+      if (!parseUser()) {
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: 'Utilisateur bureau directeur', role: 'Bureau directeur' }));
+      }
+    }
+
+    function renderUserIdentity() {
+      const user = parseUser();
+      if (user) {
+        userIdentity.innerHTML = `<strong>${user.name}</strong><span>${user.role || 'Connecté'}</span>`;
+        authAction.textContent = 'Se déconnecter';
+      } else {
+        userIdentity.textContent = 'Aucun utilisateur connecté';
+        authAction.textContent = 'Se connecter';
+      }
+    }
+
+    function extractSyncDate(syncLabel) {
+      const value = String(syncLabel || '').replace('Dernière synchronisation: ', '').trim();
+      return value || '—';
+    }
+
+    function campaignSnapshot(name) {
+      const data = campaigns[name];
+      if (!data) return { status: 'Inconnu', date: '—', etat: '—' };
+      const anomalies = data.rows.filter((r) => r.valid !== 'Valide').length;
+      const status = anomalies > 0 ? 'À contrôler' : 'Stable';
+      const etat = name === activeCampaign ? 'Campagne active' : 'Campagne ouverte';
+      return { status, date: extractSyncDate(data.syncLabel), etat };
+    }
+
+    function renderCampaignMonitor() {
+      if (!campaignMonitor) return;
+      campaignMonitor.innerHTML = campaignOptions.map((name) => {
+        const snap = campaignSnapshot(name);
+        const activeClass = name === activeCampaign ? ' is-active' : '';
+        return `<li class="monitor-item${activeClass}"><div class="monitor-item-head"><strong>${formatCampaignLabel(name)}</strong><span>${snap.status}</span></div><div class="monitor-state">${snap.date}</div><div class="monitor-state">${snap.etat}</div></li>`;
+      }).join('');
+    }
+
+    q.addEventListener('input', renderRows);
+    toggleInvalid.addEventListener('click', () => {
+      onlyInvalid = !onlyInvalid;
+      toggleInvalid.textContent = onlyInvalid ? 'Afficher toutes les lignes' : 'Afficher uniquement les anomalies';
+      renderRows();
+    });
+
+    resetCols.addEventListener('click', () => {
+      columns = sourceColumns.map((c) => ({ ...c }));
+      render();
+    });
+    campaignSelect.addEventListener('change', () => {
+      activeCampaign = campaignSelect.value;
+      activeCampaignIdFromReducer = null;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      q.value = '';
+      onlyInvalid = false;
+      toggleInvalid.textContent = 'Afficher uniquement les anomalies';
+      renderCampaignInfo();
+      renderCampaignMonitor();
+      render();
+      loadLatestItemsForActiveCampaign();
+    });
+    addCampaign.addEventListener('click', () => {
+      const name = window.prompt('Nom de la nouvelle campagne ?', `Campagne ${new Date().getFullYear() + 1}`);
+      if (!name) return;
+      const normalized = name.trim().replace(/\s+/g, ' ');
+      if (!normalized) return;
+      const existing = campaignOptions.find((value) => value.toLowerCase() === normalized.toLowerCase());
+      const campaignKey = existing || normalized;
+      if (!existing) {
+        campaignOptions.push(campaignKey);
+        createCampaignFromTemplate(campaignKey);
+        localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+        renderCampaignOptions();
+      }
+      activeCampaign = campaignKey;
+      campaignSelect.value = campaignKey;
+      localStorage.setItem(CAMPAIGN_STORE_KEY, campaignKey);
+      renderCampaignInfo();
+      renderCampaignMonitor();
+      render();
+    });
+    saveApiKey.addEventListener('click', () => {
+      const key = helloAssoApiKey.value.trim();
+      if (!key) localStorage.removeItem(API_KEY_STORE_KEY);
+      else localStorage.setItem(API_KEY_STORE_KEY, key);
+      renderApiKeyState();
+    });
+    toggleTheme.addEventListener('click', () => {
+      const isDark = document.body.dataset.theme === 'dark';
+      localStorage.setItem(THEME_STORE_KEY, isDark ? 'light' : 'dark');
+      applyTheme();
+    });
+    authAction.addEventListener('click', () => {
+      const current = parseUser();
+      if (current) {
+        localStorage.removeItem(USER_STORE_KEY);
+      } else {
+        const name = window.prompt('Nom de l’utilisateur à connecter ?', 'Utilisateur bureau directeur');
+        if (!name) return;
+        localStorage.setItem(USER_STORE_KEY, JSON.stringify({ name: name.trim(), role: 'Bureau directeur' }));
+      }
+      renderUserIdentity();
+    });
+
+    resyncHelloAsso.addEventListener('click', async () => {
+      if (syncInProgress || !activeCampaign) return;
+      syncInProgress = true;
+      resyncHelloAsso.disabled = true;
+      resyncHelloAsso.textContent = 'Synchronisation en cours...';
+      syncInfo.textContent = `Synchronisation HelloAsso en cours pour "${activeCampaign}"...`;
+
+      try {
+        if (campaignCatalog.length === 0) {
+          await loadCampaignCatalog(false);
+        }
+
+        const campaign = resolveActiveCampaign();
+        if (!campaign) {
+          syncInfo.textContent = `Campagne "${activeCampaign}" introuvable côté API.`;
+          return;
+        }
+
+        const params = new URLSearchParams({
+          campaignTitle: activeCampaign,
+          campaignId: String(campaign.id),
+          withDetails: 'true'
+        });
+        const response = await fetch(`/api/helloasso/import/?${params.toString()}`);
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const errorMessage = payload?.error || `Erreur HTTP ${response.status}`;
+          syncInfo.textContent = `Échec de synchronisation (${activeCampaign}) : ${errorMessage}`;
+          return;
+        }
+
+        const itemsCount = Number(payload?.items_count);
+        const countLabel = Number.isFinite(itemsCount) ? ` • ${itemsCount} entrées` : '';
+        if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+        campaigns[activeCampaign].syncLabel = `Dernière synchronisation: ${formatSyncDate(new Date())}${countLabel}`;
+        await loadLatestItemsForActiveCampaign();
+        renderCampaignInfo();
+        renderCampaignMonitor();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        syncInfo.textContent = `Échec de synchronisation (${activeCampaign}) : ${message}`;
+      } finally {
+        syncInProgress = false;
+        resyncHelloAsso.disabled = false;
+        resyncHelloAsso.textContent = 'Relancer la synchronisation';
+      }
+    });
+
+    window.addEventListener('storage', (event) => {
+      if (!event.key || event.key === THEME_STORE_KEY) applyTheme();
+      if (!event.key || event.key === USER_STORE_KEY) renderUserIdentity();
+      if (!event.key || event.key === API_KEY_STORE_KEY) renderApiKeyState();
+      if (!event.key || event.key === CAMPAIGN_LIST_STORE_KEY) {
+        loadCampaignOptions();
+        renderCampaignOptions();
+      }
+      if (!event.key || event.key === CAMPAIGN_STORE_KEY || event.key === CAMPAIGN_LIST_STORE_KEY) {
+        activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || activeCampaign;
+        renderCampaignOptions();
+        renderCampaignInfo();
+        renderCampaignMonitor();
+        render();
+      }
+    });
+
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ffck:activeCampaignContext') return;
+
+      const nextCampaignTitle =
+        typeof event.data?.campaignTitle === 'string' ? event.data.campaignTitle.trim() : '';
+      const nextCampaignId = Number(event.data?.campaignId);
+
+      hasCampaignContextFromParent = true;
+      activeCampaignIdFromReducer = Number.isFinite(nextCampaignId) ? nextCampaignId : null;
+
+      if (nextCampaignTitle) {
+        activeCampaign = nextCampaignTitle;
+        if (!campaignOptions.includes(activeCampaign)) {
+          campaignOptions.push(activeCampaign);
+          if (!campaigns[activeCampaign]) createCampaignFromTemplate(activeCampaign);
+          localStorage.setItem(CAMPAIGN_LIST_STORE_KEY, JSON.stringify(campaignOptions));
+        }
+        localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
+      }
+
+      renderCampaignOptions();
+      renderCampaignInfo();
+      renderCampaignMonitor();
+      render();
+      loadLatestItemsForActiveCampaign();
+    });
+
+    loadCampaignOptions();
+    renderCampaignOptions();
+    loadCampaignCatalog(false).then(() => {
+      if (!isEmbedded && activeCampaign) {
+        loadLatestItemsForActiveCampaign();
+        return;
+      }
+      if (isEmbedded && hasCampaignContextFromParent && activeCampaign) {
+        loadLatestItemsForActiveCampaign();
+      }
+    });
+    ensureDefaultUser();
+    applyTheme();
+    renderUserIdentity();
+    renderApiKeyState();
+    renderCampaignInfo();
+    renderCampaignMonitor();
+    render();
+  </script>
+</body>
+</html>
