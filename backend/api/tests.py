@@ -86,6 +86,7 @@ class HelloAssoMemberSyncServiceTests(TestCase):
             payer_email="bob@example.com",
             latest_import=self.import_record,
             raw_item={
+                "name": "inscription-loisir",
                 "user": {
                     "firstName": "Bob",
                     "lastName": "Martin",
@@ -103,8 +104,57 @@ class HelloAssoMemberSyncServiceTests(TestCase):
         self.assertEqual(item.member_id, created_member.id)
         self.assertEqual(created_member.first_name, "Bob")
         self.assertEqual(created_member.name, "Martin")
+        self.assertEqual(created_member.helloasso_form_slug, "inscription-loisir")
         self.assertEqual(summary["created_members"], 1)
         self.assertEqual(summary["linked_items"], 1)
+
+    def test_sync_updates_member_with_latest_helloasso_form_slug(self):
+        first_item = HelloAssoItem.objects.create(
+            helloasso_id="ha_2a",
+            organization_slug="org-test",
+            form_type="Membership",
+            form_slug="inscription-loisir",
+            status="Paid",
+            payer_email="bob@example.com",
+            latest_import=self.import_record,
+            raw_item={
+                "name": "inscription-loisir",
+                "user": {
+                    "firstName": "Bob",
+                    "lastName": "Martin",
+                    "email": "bob@example.com",
+                }
+            },
+        )
+        second_item = HelloAssoItem.objects.create(
+            helloasso_id="ha_2b",
+            organization_slug="org-test",
+            form_type="Membership",
+            form_slug="inscription-competition",
+            status="Paid",
+            payer_email="bob@example.com",
+            latest_import=self.import_record,
+            raw_item={
+                "name": "inscription-competition",
+                "user": {
+                    "firstName": "Bob",
+                    "lastName": "Martin",
+                    "email": "bob@example.com",
+                }
+            },
+        )
+
+        summary = HelloAssoMemberSyncService(campaign=self.campaign).sync_latest_import(
+            import_record=self.import_record
+        )
+
+        first_item.refresh_from_db()
+        second_item.refresh_from_db()
+        member = Member.objects.get(campaign=self.campaign, email="bob@example.com")
+        self.assertEqual(first_item.member_id, member.id)
+        self.assertEqual(second_item.member_id, member.id)
+        self.assertEqual(member.helloasso_form_slug, "inscription-competition")
+        self.assertEqual(summary["linked_items"], 2)
 
 
     def test_sync_extracts_document_links_from_item_rows(self):
@@ -180,6 +230,41 @@ class HelloAssoMemberSyncServiceTests(TestCase):
         self.assertEqual(summary["created_members"], 0)
         self.assertEqual(summary["linked_items"], 0)
         self.assertEqual(summary["skipped_items"], 1)
+
+    def test_sync_keeps_existing_linked_member_instead_of_recreating_old_identity(self):
+        kept_member = Member.objects.create(
+            campaign=self.campaign,
+            first_name="Alice",
+            name="Dupont",
+            email="alice@example.com",
+            ffck_licence="",
+        )
+        item = HelloAssoItem.objects.create(
+            helloasso_id="ha_5",
+            organization_slug="org-test",
+            form_type="Membership",
+            form_slug="campagne-test",
+            status="Paid",
+            payer_email="alice@example.com",
+            member=kept_member,
+            latest_import=self.import_record,
+            raw_item={
+                "user": {
+                    "firstName": "Alyce",
+                    "lastName": "Dupont",
+                    "email": "alice@example.com",
+                }
+            },
+        )
+
+        summary = HelloAssoMemberSyncService(campaign=self.campaign).sync_latest_import(
+            import_record=self.import_record
+        )
+
+        item.refresh_from_db()
+        self.assertEqual(item.member_id, kept_member.id)
+        self.assertEqual(summary["created_members"], 0)
+        self.assertEqual(Member.objects.filter(campaign=self.campaign).count(), 1)
 
 
 class HelloAssoSyncMembersViewTests(TestCase):
@@ -265,7 +350,13 @@ class FfckSyncMembersViewTests(TestCase):
             nom="VAN Cyril",
             categorie="Senior",
             certificat="Loisir",
-            raw_row={"nom": "VAN", "prenom": "Cyril"},
+            raw_row={
+                "nom": "VAN",
+                "prenom": "Cyril",
+                "type certificat": "Questionnaire de sante",
+                "date de fin certificat medical": "2027-02-01",
+                "type licence": "Competition",
+            },
         )
 
         response = self.client.get(f"/api/ffck/sync-members/?campaignId={campaign.id}")
@@ -470,13 +561,135 @@ class CampaignMemberDedupViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         helloasso_item.refresh_from_db()
         ffck_row.refresh_from_db()
-        suggestion.refresh_from_db()
         keep_member.refresh_from_db()
         self.assertFalse(Member.objects.filter(id=duplicate_member.id).exists())
         self.assertEqual(helloasso_item.member_id, keep_member.id)
         self.assertEqual(ffck_row.member_id, keep_member.id)
         self.assertEqual(keep_member.ffck_licence, "123456")
-        self.assertEqual(suggestion.status, MemberDuplicateSuggestion.STATUS_ACCEPTED)
+        self.assertFalse(MemberDuplicateSuggestion.objects.filter(id=suggestion.id).exists())
+
+    def test_member_duplicate_merge_allows_multiple_merges_into_same_master(self):
+        campaign = Campaign.objects.create(
+            title="Campagne merge dedup multiple",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-merge-dedup-multiple",
+        )
+        keep_member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Dupont",
+            email="alice@example.com",
+            ffck_licence="",
+        )
+        duplicate_1 = Member.objects.create(
+            campaign=campaign,
+            first_name="Alyce",
+            name="Dupont",
+            email="",
+            ffck_licence="111111",
+        )
+        duplicate_2 = Member.objects.create(
+            campaign=campaign,
+            first_name="Alise",
+            name="Dupont",
+            email="",
+            ffck_licence="222222",
+        )
+        suggestion_1 = MemberDuplicateSuggestion.objects.create(
+            campaign=campaign,
+            member_left=keep_member,
+            member_right=duplicate_1,
+            recommended_master=keep_member,
+            similarity_score=0.92,
+            reasons=["nom_prenom_proches"],
+            status=MemberDuplicateSuggestion.STATUS_PENDING,
+        )
+        suggestion_2 = MemberDuplicateSuggestion.objects.create(
+            campaign=campaign,
+            member_left=keep_member,
+            member_right=duplicate_2,
+            recommended_master=keep_member,
+            similarity_score=0.90,
+            reasons=["nom_prenom_proches"],
+            status=MemberDuplicateSuggestion.STATUS_PENDING,
+        )
+
+        response_1 = self.client.post(
+            f"/api/campaigns/member-duplicates/merge/?campaignId={campaign.id}",
+            data=json.dumps({"suggestion_id": suggestion_1.id, "keep_member_id": keep_member.id}),
+            content_type="application/json",
+        )
+        response_2 = self.client.post(
+            f"/api/campaigns/member-duplicates/merge/?campaignId={campaign.id}",
+            data=json.dumps({"suggestion_id": suggestion_2.id, "keep_member_id": keep_member.id}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response_1.status_code, 200)
+        self.assertEqual(response_2.status_code, 200)
+        self.assertFalse(Member.objects.filter(id=duplicate_1.id).exists())
+        self.assertFalse(Member.objects.filter(id=duplicate_2.id).exists())
+        self.assertTrue(Member.objects.filter(id=keep_member.id).exists())
+
+    def test_member_duplicate_merge_fills_blank_fields_from_dropped_member(self):
+        campaign = Campaign.objects.create(
+            title="Campagne merge dedup fill-blanks",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-merge-dedup-fill-blanks",
+        )
+        keep_member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Dupont",
+            email="   ",
+            ffck_licence="",
+            certificat="",
+            autorisation_parentale="",
+            photo="",
+            option_ia=False,
+            manual_review=False,
+        )
+        duplicate_member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Dupont",
+            email="alice@example.com",
+            ffck_licence="987654",
+            certificat="https://docs.example.com/certif.pdf",
+            autorisation_parentale="https://docs.example.com/autorisation.pdf",
+            photo="https://docs.example.com/photo.jpg",
+            option_ia=True,
+            manual_review=True,
+        )
+        suggestion = MemberDuplicateSuggestion.objects.create(
+            campaign=campaign,
+            member_left=keep_member,
+            member_right=duplicate_member,
+            recommended_master=keep_member,
+            similarity_score=0.99,
+            reasons=["nom_prenom_tres_proches"],
+            status=MemberDuplicateSuggestion.STATUS_PENDING,
+        )
+
+        response = self.client.post(
+            f"/api/campaigns/member-duplicates/merge/?campaignId={campaign.id}",
+            data=json.dumps({"suggestion_id": suggestion.id, "keep_member_id": keep_member.id}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        keep_member.refresh_from_db()
+        self.assertEqual(keep_member.email, "alice@example.com")
+        self.assertEqual(keep_member.ffck_licence, "987654")
+        self.assertEqual(keep_member.certificat, "https://docs.example.com/certif.pdf")
+        self.assertEqual(
+            keep_member.autorisation_parentale, "https://docs.example.com/autorisation.pdf"
+        )
+        self.assertEqual(keep_member.photo, "https://docs.example.com/photo.jpg")
+        self.assertTrue(keep_member.option_ia)
+        self.assertTrue(keep_member.manual_review)
 
 
 class CampaignMembersViewManualReviewTests(TestCase):
@@ -512,8 +725,10 @@ class CampaignMembersViewManualReviewTests(TestCase):
         by_id = {row["id"]: row for row in members}
         self.assertEqual(by_id[member_default.id]["manual_review"], False)
         self.assertEqual(by_id[member_default.id]["manual_review_label"], "non vérifié")
+        self.assertEqual(by_id[member_default.id]["helloasso_form_slug"], "")
         self.assertEqual(by_id[member_reviewed.id]["manual_review"], True)
         self.assertEqual(by_id[member_reviewed.id]["manual_review_label"], "vérifié")
+        self.assertEqual(by_id[member_reviewed.id]["helloasso_form_slug"], "")
 
 
 class CampaignManualEditionViewTests(TestCase):
@@ -559,6 +774,39 @@ class CampaignManualEditionViewTests(TestCase):
         self.assertEqual(member.first_name, "Alicia")
         self.assertEqual(member.manual_review, True)
         self.assertIsNotNone(campaign.last_manual_edition)
+
+    def test_manual_edition_updates_member_helloasso_form_slug(self):
+        campaign = Campaign.objects.create(
+            title="Campagne édition slug",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-edition-slug",
+        )
+        member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Durand",
+            email="alice@example.com",
+            ffck_licence="",
+            helloasso_form_slug="inscription-loisir",
+        )
+
+        response = self.client.post(
+            f"/api/campaigns/{campaign.id}/manual-edition/",
+            data={
+                "members": [
+                    {
+                        "id": member.id,
+                        "helloasso_form_slug": "inscription-competition",
+                    }
+                ]
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        member.refresh_from_db()
+        self.assertEqual(member.helloasso_form_slug, "inscription-competition")
 
 
 class CampaignMembersCreateViewTests(TestCase):
@@ -1086,7 +1334,13 @@ class FfckMemberSyncServiceTests(TestCase):
             nom="VAN Cyril",
             categorie="Senior",
             certificat="Loisir",
-            raw_row={"nom": "VAN", "prenom": "Cyril"},
+            raw_row={
+                "nom": "VAN",
+                "prenom": "Cyril",
+                "type certificat": "Questionnaire de sante",
+                "date de fin certificat medical": "2027-02-01",
+                "type licence": "Competition",
+            },
         )
 
         summary = FfckMemberSyncService(campaign=campaign).sync_latest_export()
@@ -1095,6 +1349,9 @@ class FfckMemberSyncServiceTests(TestCase):
         member.refresh_from_db()
         self.assertEqual(ffck_row.member_id, member.id)
         self.assertEqual(member.ffck_licence, "528768")
+        self.assertEqual(member.ffck_certificat, "Questionnaire de sante")
+        self.assertEqual(member.ffck_certificat_expiration, "2027-02-01")
+        self.assertEqual(member.ffck_licence_type, "Competition")
         self.assertEqual(summary["linked_rows"], 1)
         self.assertEqual(summary["updated_members"], 1)
         self.assertEqual(summary["skipped_rows"], 0)
@@ -1134,7 +1391,13 @@ class FfckMemberSyncServiceTests(TestCase):
             nom="Dupont Alice",
             categorie="",
             certificat="",
-            raw_row={"nom": "Dupont", "prenom": "Alice"},
+            raw_row={
+                "nom": "Dupont",
+                "prenom": "Alice",
+                "type certificat": "Certificat medical",
+                "date de fin certificat medical": "2026-12-31",
+                "type licence": "Loisir",
+            },
         )
 
         summary = FfckMemberSyncService(campaign=campaign).sync_latest_export()
@@ -1147,7 +1410,54 @@ class FfckMemberSyncServiceTests(TestCase):
         self.assertEqual(created_member.first_name, "Alice")
         self.assertEqual(created_member.name, "Dupont")
         self.assertEqual(created_member.ffck_licence, "000002")
+        self.assertEqual(created_member.ffck_certificat, "Certificat medical")
+        self.assertEqual(created_member.ffck_certificat_expiration, "2026-12-31")
+        self.assertEqual(created_member.ffck_licence_type, "Loisir")
         self.assertEqual(summary["linked_rows"], 1)
         self.assertEqual(summary["updated_members"], 1)
         self.assertEqual(summary["created_members"], 1)
         self.assertEqual(summary["skipped_rows"], 1)
+
+    def test_sync_latest_export_keeps_existing_row_member_instead_of_recreating_old_identity(self):
+        campaign = Campaign.objects.create(
+            title="Campagne FFCK sync keep-link",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-ffck-sync-keep-link",
+        )
+        kept_member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Dupont",
+            email="alice@example.com",
+            ffck_licence="",
+        )
+        ffck_export = FfckExport.objects.create(
+            campaign=campaign,
+            source="licences_excel",
+            export_path="/extractions/licences/excel",
+            export_method="POST",
+            rows_count=1,
+            filename="export.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_size=12,
+            file_sha256="f" * 64,
+            file_blob=b"xlsx",
+        )
+        ffck_row = FfckExportRow.objects.create(
+            ffck_export=ffck_export,
+            row_index=1,
+            licence="000003",
+            nom="Dupont Alyce",
+            categorie="",
+            certificat="",
+            member=kept_member,
+            raw_row={"nom": "Dupont", "prenom": "Alyce"},
+        )
+
+        summary = FfckMemberSyncService(campaign=campaign).sync_latest_export()
+
+        ffck_row.refresh_from_db()
+        self.assertEqual(ffck_row.member_id, kept_member.id)
+        self.assertEqual(summary["created_members"], 0)
+        self.assertEqual(Member.objects.filter(campaign=campaign).count(), 1)

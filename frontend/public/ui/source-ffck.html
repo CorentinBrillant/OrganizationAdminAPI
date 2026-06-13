@@ -60,7 +60,9 @@
     .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
     .value { margin-top: 6px; font-family: var(--font-mono); font-size: 1.25rem; font-variant-numeric: tabular-nums; }
     .tool { display: flex; gap: 8px; flex-wrap: wrap; }
-    input, select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font: inherit; }
+    input, select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); padding: 7px 9px; font: inherit; }
+    input::placeholder { color: var(--muted); opacity: 1; }
+    input[type="search"] { color-scheme: light dark; }
     .table { overflow: auto; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid var(--border); padding: 10px; text-align: left; font-size: .9rem; white-space: nowrap; }
@@ -153,12 +155,6 @@
       <section class="box">
         <div class="tool">
           <input id="q" type="search" placeholder="Rechercher licence, nom, catégorie..." />
-          <select id="state">
-            <option value="all">Tous les statuts</option>
-            <option value="Valide">Valide</option>
-            <option value="Incomplet">Incomplet</option>
-            <option value="Erreur">Erreur</option>
-          </select>
           <button id="resetCols" class="btn subtle" type="button">Réinitialiser les colonnes</button>
         </div>
         <p class="hint">Colonnes: ← et → pour déplacer, × pour supprimer. Double-cliquez une cellule pour l'éditer puis Entrée pour valider.</p>
@@ -193,7 +189,6 @@
     const kpiKnown = document.getElementById('kpiKnown');
     const kpiAnomalies = document.getElementById('kpiAnomalies');
     const q = document.getElementById('q');
-    const state = document.getElementById('state');
     const resetCols = document.getElementById('resetCols');
     const headRow = document.getElementById('headRow');
     const tbody = document.getElementById('rows');
@@ -220,6 +215,25 @@
     let columns = sourceColumns.map((c) => ({ ...c }));
     let activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || '';
     let campaignOptions = [];
+
+    function emitUiFilters() {
+      if (!(window.parent && window.parent !== window)) return;
+      window.parent.postMessage(
+        {
+          type: 'ffck:uiFiltersChanged',
+          page: 'ffck',
+          filters: {
+            search: String(q?.value || ''),
+          },
+        },
+        window.location.origin,
+      );
+    }
+
+    function applyUiFilters(filters) {
+      if (!filters || typeof filters !== 'object') return;
+      if (typeof filters.search === 'string') q.value = filters.search;
+    }
 
     function shiftYearInText(text, year) {
       return String(text).replace(/20\d{2}/g, String(year));
@@ -398,12 +412,6 @@
       return campaign && Array.isArray(campaign.rows) ? campaign.rows : [];
     }
 
-    function badgeClass(text) {
-      if (text === 'Valide') return 'ok';
-      if (text === 'Incomplet') return 'warn';
-      return 'danger';
-    }
-
     function filterRows() {
       const query = q.value.trim().toLowerCase();
       return currentRows().filter((r) => {
@@ -563,8 +571,10 @@
       renderRows();
     }, true);
 
-    q.addEventListener('input', renderRows);
-    state.addEventListener('change', renderRows);
+    q.addEventListener('input', () => {
+      renderRows();
+      emitUiFilters();
+    });
     resetCols.addEventListener('click', () => {
       columns = sourceColumns.map((c) => ({ ...c }));
       render();
@@ -573,7 +583,7 @@
       activeCampaign = campaignSelect.value;
       localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
       q.value = '';
-      state.value = 'all';
+      emitUiFilters();
       renderCampaignInfo();
       renderCampaignMonitor();
       render();
@@ -642,6 +652,7 @@
     window.addEventListener('message', (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== 'ffck:activeCampaignContext') return;
+      applyUiFilters(event.data?.uiFilters);
 
       const nextCampaignTitle =
         typeof event.data?.campaignTitle === 'string' ? event.data.campaignTitle.trim() : '';

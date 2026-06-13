@@ -2,7 +2,11 @@ import { useEffect, useMemo } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
 import UiEmbed from '../components/UiEmbed'
-import { loadCampaignMembers, loadCampaigns, upsertCampaignMemberPatch } from '../store/campaignsSlice'
+import {
+  loadCampaignMembers,
+  setPageFilters,
+  upsertCampaignMemberPatch,
+} from '../store/campaignsSlice'
 
 export default function DashboardFusionPage() {
   const dispatch = useDispatch()
@@ -10,6 +14,7 @@ export default function DashboardFusionPage() {
   const activeCampaign = useSelector((state) => state.campaigns.activeCampaign)
   const catalog = useSelector((state) => state.campaigns.catalog)
   const membersByCampaignId = useSelector((state) => state.campaigns.membersByCampaignId)
+  const uiFilters = useSelector((state) => state.campaigns.uiFiltersByPage?.dashboard || {})
 
   useEffect(() => {
     const onMessage = async (event) => {
@@ -21,6 +26,15 @@ export default function DashboardFusionPage() {
           upsertCampaignMemberPatch({
             campaignId: normalizedCampaignId,
             member: event.data?.member,
+          }),
+        )
+        return
+      }
+      if (event.data?.type === 'ffck:uiFiltersChanged' && event.data?.page === 'dashboard') {
+        dispatch(
+          setPageFilters({
+            page: 'dashboard',
+            filters: event.data?.filters,
           }),
         )
         return
@@ -55,8 +69,9 @@ export default function DashboardFusionPage() {
       members,
       lastMerge: activeCatalogItem?.last_merge || null,
       lastManualEdition: activeCatalogItem?.last_manual_edition || null,
+      uiFilters,
     }
-  }, [activeCampaignId, activeCampaign, catalog, membersByCampaignId])
+  }, [activeCampaignId, activeCampaign, catalog, membersByCampaignId, uiFilters])
 
   return <UiEmbed file="dashboard-fusion.html" title="Inscriptions" bridgeMessage={bridgeMessage} />
 }

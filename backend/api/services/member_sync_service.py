@@ -179,19 +179,26 @@ class HelloAssoMemberSyncService:
                 skipped_items += 1
                 continue
 
-            member = members_by_identity.get(key)
-            if member is None:
-                member = Member.objects.create(
-                    campaign=self.campaign,
-                    first_name=first_name,
-                    name=last_name,
-                    email=email,
-                    ffck_licence="",
-                )
-                members_by_identity[key] = member
-                created_members += 1
+            linked_member = helloasso_item.member
+            if linked_member is not None and linked_member.campaign_id == self.campaign.id:
+                member = linked_member
+                if key not in members_by_identity:
+                    members_by_identity[key] = member
+            else:
+                member = members_by_identity.get(key)
+                if member is None:
+                    member = Member.objects.create(
+                        campaign=self.campaign,
+                        first_name=first_name,
+                        name=last_name,
+                        email=email,
+                        ffck_licence="",
+                    )
+                    members_by_identity[key] = member
+                    created_members += 1
 
             certificat_url, autorisation_url, photo_url = _extract_document_links(raw_item)
+            helloasso_item_name = _pick_first_string(raw_item.get("name"))
             member_updates = []
             if certificat_url and member.certificat != certificat_url:
                 member.certificat = certificat_url
@@ -202,6 +209,9 @@ class HelloAssoMemberSyncService:
             if photo_url and member.photo != photo_url:
                 member.photo = photo_url
                 member_updates.append("photo")
+            if helloasso_item_name and member.helloasso_form_slug != helloasso_item_name:
+                member.helloasso_form_slug = helloasso_item_name
+                member_updates.append("helloasso_form_slug")
             if member_updates:
                 member.save(update_fields=member_updates)
 
@@ -285,17 +295,23 @@ class FfckMemberSyncService:
                 skipped_rows += 1
                 continue
 
-            member = members_by_identity.get(key)
-            if member is None:
-                member = Member.objects.create(
-                    campaign=self.campaign,
-                    first_name=first_name,
-                    name=last_name,
-                    email="",
-                    ffck_licence="",
-                )
-                members_by_identity[key] = member
-                created_members += 1
+            linked_member = row.member
+            if linked_member is not None and linked_member.campaign_id == self.campaign.id:
+                member = linked_member
+                if key not in members_by_identity:
+                    members_by_identity[key] = member
+            else:
+                member = members_by_identity.get(key)
+                if member is None:
+                    member = Member.objects.create(
+                        campaign=self.campaign,
+                        first_name=first_name,
+                        name=last_name,
+                        email="",
+                        ffck_licence="",
+                    )
+                    members_by_identity[key] = member
+                    created_members += 1
 
             if row.member_id != member.id:
                 row.member = member
@@ -303,9 +319,30 @@ class FfckMemberSyncService:
             linked_rows += 1
 
             licence = _pick_first_string(row.licence)
+            raw_row = row.raw_row if isinstance(row.raw_row, dict) else {}
+            ffck_certificat = _pick_first_string(raw_row.get("type certificat"))
+            ffck_certificat_expiration = _pick_first_string(
+                raw_row.get("date de fin certificat medical"),
+                raw_row.get("date de fin certificat médical"),
+            )
+            ffck_licence_type = _pick_first_string(raw_row.get("type licence"))
+
+            update_fields = []
             if licence and member.ffck_licence != licence:
                 member.ffck_licence = licence
-                member.save(update_fields=["ffck_licence"])
+                update_fields.append("ffck_licence")
+            if member.ffck_certificat != ffck_certificat:
+                member.ffck_certificat = ffck_certificat
+                update_fields.append("ffck_certificat")
+            if member.ffck_certificat_expiration != ffck_certificat_expiration:
+                member.ffck_certificat_expiration = ffck_certificat_expiration
+                update_fields.append("ffck_certificat_expiration")
+            if member.ffck_licence_type != ffck_licence_type:
+                member.ffck_licence_type = ffck_licence_type
+                update_fields.append("ffck_licence_type")
+
+            if update_fields:
+                member.save(update_fields=update_fields)
                 updated_members += 1
 
             processed_rows += 1

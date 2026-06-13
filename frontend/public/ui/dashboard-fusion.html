@@ -218,6 +218,14 @@
               <option value="À vérifier">À vérifier</option>
               <option value="Bloquant">Bloquant</option>
             </select>
+            <select id="reasonFilter" aria-label="Filtrer par raison">
+              <option value="all">Toutes les raisons</option>
+              <option value="Certificat manquant">Certificat manquant</option>
+              <option value="Expiration certificat">Expiration certificat</option>
+              <option value="Incohérence entre formulaire HelloAsso et type de licence FFCK">Incohérence licence</option>
+              <option value="Vérification manuelle requise">Vérification manuelle requise</option>
+              <option value="Aucune anomalie">Aucune anomalie</option>
+            </select>
             <button id="sortByName" type="button" class="icon-action btn-subtle delayed-tooltip" aria-label="Trier par nom (A-Z)" data-tooltip="Trier par nom (A-Z)">
               <span aria-hidden="true">⇅</span>
             </button>
@@ -258,6 +266,7 @@
   <script>
     const sourceColumns = [
       { key: 'statut', label: 'Statut dossier' },
+      { key: 'raison', label: 'Raison' },
       { key: 'manual_review', label: 'Vérification manuelle' },
       { key: 'nom', label: 'Nom' },
       { key: 'prenom', label: 'Prénom' },
@@ -285,6 +294,7 @@
     const tbody = document.getElementById('rows');
     const search = document.getElementById('search');
     const statusFilter = document.getElementById('statusFilter');
+    const reasonFilter = document.getElementById('reasonFilter');
     const sortByName = document.getElementById('sortByName');
     const runFusion = document.getElementById('runFusion');
     const refreshMembers = document.getElementById('refreshMembers');
@@ -319,6 +329,29 @@
     let isSyncingHorizontalScroll = false;
     const TOOLTIP_DELAY_MS = 1000;
     const tooltipTimers = new WeakMap();
+
+    function emitUiFilters() {
+      if (!(window.parent && window.parent !== window)) return;
+      window.parent.postMessage(
+        {
+          type: 'ffck:uiFiltersChanged',
+          page: 'dashboard',
+          filters: {
+            search: String(search?.value || ''),
+            status: String(statusFilter?.value || 'all'),
+            reason: String(reasonFilter?.value || 'all'),
+          },
+        },
+        window.location.origin,
+      );
+    }
+
+    function applyUiFilters(filters) {
+      if (!filters || typeof filters !== 'object') return;
+      if (typeof filters.search === 'string') search.value = filters.search;
+      if (typeof filters.status === 'string' && filters.status.trim()) statusFilter.value = filters.status;
+      if (typeof filters.reason === 'string' && filters.reason.trim()) reasonFilter.value = filters.reason;
+    }
 
     function showDelayedTooltip(button) {
       if (!button) return;
@@ -461,11 +494,14 @@
     }
 
     function mapMemberToRow(member) {
-      return {
+      const row = {
         member_id: Number(member.id),
         nom: member.name || '—',
         prenom: member.first_name || '—',
         licence: member.ffck_licence || '—',
+        ffck_licence_type: member.ffck_licence_type || '',
+        ffck_certificat_expiration: member.ffck_certificat_expiration || '',
+        helloasso_form_slug: member.helloasso_form_slug || '',
         email: member.email || '—',
         certificat: member.certificat || '—',
         autorisation_parentale: member.autorisation_parentale || '—',
@@ -473,15 +509,53 @@
         option_ia: member.option_ia ? 'Oui' : 'Non',
         manual_review: member.manual_review ? 'vérifié' : 'non vérifié',
         paiement: '—',
-        statut: 'À vérifier',
+        statut: '—',
+        raison: '—',
         sources: 'API Members',
         ecart: 'Aucun'
       };
+      refreshRowStatus(row);
+      return row;
     }
 
     function isMissingCertificat(value) {
       const normalized = String(value ?? '').trim();
       return normalized === '' || normalized === '—';
+    }
+
+    function normalizeForComparison(value) {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    }
+
+    function hasLoisirCompetitionMismatch(row) {
+      const formSlug = normalizeForComparison(row.helloasso_form_slug);
+      const licenceType = normalizeForComparison(row.ffck_licence_type);
+      const slugHasLoisir = formSlug.includes('loisir');
+      const slugHasCompetition = formSlug.includes('competition');
+      const licenceHasLoisir = licenceType.includes('loisir');
+      const licenceHasCompetition = licenceType.includes('competition');
+      if (slugHasLoisir && licenceHasCompetition) return true;
+      if (slugHasCompetition && licenceHasLoisir) return true;
+      return false;
+    }
+
+    function extractYearFromText(value) {
+      const text = String(value || '').trim();
+      if (!text || text === '—') return null;
+      const parsed = new Date(text);
+      if (Number.isFinite(parsed.getTime())) return parsed.getFullYear();
+      const match = text.match(/(?:^|[^0-9])(20\d{2})(?:[^0-9]|$)/);
+      if (!match) return null;
+      const year = Number(match[1]);
+      return Number.isFinite(year) ? year : null;
+    }
+
+    function isFfckCertificatExpiringThisYear(row) {
+      const year = extractYearFromText(row.ffck_certificat_expiration);
+      return Number.isFinite(year) && year === new Date().getFullYear();
     }
 
     function computeStatusForRow(row) {
@@ -491,9 +565,29 @@
       return 'Conforme';
     }
 
+    function computeReasonForRow(row) {
+      const reasons = [];
+      if (isMissingCertificat(row.certificat)) {
+        reasons.push('Certificat manquant');
+      }
+      const review = String(row.manual_review || '').trim().toLowerCase();
+      if (review !== 'vérifié' && isFfckCertificatExpiringThisYear(row)) {
+        reasons.push('Expiration certificat');
+      }
+      if (review !== 'vérifié' && hasLoisirCompetitionMismatch(row)) {
+        reasons.push('Incohérence entre formulaire HelloAsso et type de licence FFCK');
+      }
+      if (review !== 'vérifié' && reasons.length === 0) {
+        reasons.push('Vérification manuelle requise');
+      }
+      if (reasons.length === 0) return 'Aucune anomalie';
+      return reasons.join(' | ');
+    }
+
     function refreshRowStatus(row) {
       if (!row || typeof row !== 'object') return;
       row.statut = computeStatusForRow(row);
+      row.raison = computeReasonForRow(row);
     }
 
     function refreshCurrentCampaignStatuses() {
@@ -973,12 +1067,14 @@
       refreshCurrentCampaignStatuses();
       const q = search.value.trim().toLowerCase();
       const f = statusFilter.value;
+      const reason = reasonFilter.value;
       const currentRows = currentCampaignData()?.rows || [];
       return currentRows
         .filter((r) => {
           const inText = Object.values(r).join(' ').toLowerCase().includes(q);
           const inStatus = f === 'all' || r.statut === f;
-          return inText && inStatus;
+          const inReason = reason === 'all' || String(r.raison || '').includes(reason);
+          return inText && inStatus && inReason;
         })
         .sort((a, b) => asc ? a.nom.localeCompare(b.nom, 'fr') : b.nom.localeCompare(a.nom, 'fr'));
     }
@@ -1046,7 +1142,7 @@
             : (isLinkColumn && isUrl
               ? '<a href="' + displayRaw + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
               : displayRaw);
-          const editable = (isLinkColumn || col.key === 'statut' || col.key === 'manual_review') ? 'false' : 'true';
+          const editable = (isLinkColumn || col.key === 'statut' || col.key === 'raison' || col.key === 'manual_review') ? 'false' : 'true';
           return '<td contenteditable="' + editable + '" data-row="' + rowIdx + '" data-key="' + col.key + '">' + value + '</td>';
         }).join('');
         return '<tr>' + selectCell + cells + '</tr>';
@@ -1147,8 +1243,18 @@
       renderRows();
     }, true);
 
-    search.addEventListener('input', renderRows);
-    statusFilter.addEventListener('change', renderRows);
+    search.addEventListener('input', () => {
+      renderRows();
+      emitUiFilters();
+    });
+    statusFilter.addEventListener('change', () => {
+      renderRows();
+      emitUiFilters();
+    });
+    reasonFilter.addEventListener('change', () => {
+      renderRows();
+      emitUiFilters();
+    });
     sortByName.addEventListener('click', () => {
       asc = !asc;
       const sortLabel = asc ? 'Trier par nom (A-Z)' : 'Trier par nom (Z-A)';
@@ -1245,6 +1351,8 @@
       localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
       search.value = '';
       statusFilter.value = 'all';
+      reasonFilter.value = 'all';
+      emitUiFilters();
       renderLastFusion();
       renderLastModification();
       renderSaveChangesState();
@@ -1366,6 +1474,7 @@
     window.addEventListener('message', (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== 'ffck:activeCampaignMembers') return;
+      applyUiFilters(event.data?.uiFilters);
       const payloadCampaignId = Number(event.data?.campaignId);
       const payloadCampaignTitle =
         typeof event.data?.campaignTitle === 'string' ? event.data.campaignTitle.trim() : '';

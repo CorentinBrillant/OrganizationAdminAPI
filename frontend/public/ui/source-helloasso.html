@@ -68,7 +68,9 @@
     .ok { color: color-mix(in oklch, var(--success) 70%, black); }
     .warn { color: color-mix(in oklch, var(--warn) 65%, black); }
     .tool { display: flex; gap: 8px; flex-wrap: wrap; }
-    input { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: var(--surface); }
+    input { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: var(--surface); color: var(--fg); }
+    input::placeholder { color: var(--muted); opacity: 1; }
+    input[type="search"] { color-scheme: light dark; }
     .col-head { display: grid; gap: 6px; min-width: 150px; }
     .col-actions { display: flex; gap: 4px; }
     .icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: 6px; font-size: .7rem; line-height: 1; padding: 4px 6px; cursor: pointer; }
@@ -150,7 +152,6 @@
       <section class="box">
         <div class="tool">
           <input id="q" type="search" placeholder="Filtrer prénom, nom, email, inscription, montant..." />
-          <button id="toggleInvalid" class="btn" type="button">Afficher uniquement les anomalies</button>
           <button id="resetCols" class="btn subtle" type="button">Réinitialiser les colonnes</button>
         </div>
         <p class="hint">Colonnes: ← et → pour déplacer, × pour supprimer. Double-cliquez une cellule pour l'éditer puis Entrée pour valider.</p>
@@ -186,7 +187,6 @@
     const headRow = document.getElementById('headRow');
     const tbody = document.getElementById('rows');
     const q = document.getElementById('q');
-    const toggleInvalid = document.getElementById('toggleInvalid');
     const resetCols = document.getElementById('resetCols');
     const addCampaign = document.getElementById('addCampaign');
     const toggleTheme = document.getElementById('toggleTheme');
@@ -205,7 +205,6 @@
     const SOURCE_HELLOASSO_CAMPAIGN_CATALOG_KEY = 'ffck:source-helloasso:campaign-catalog:v1';
     const isEmbedded = new URLSearchParams(window.location.search).get('embedded') === '1';
     
-    let onlyInvalid = false;
     let columns = sourceColumns.map((c) => ({ ...c }));
     let activeCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY) || '';
     let activeCampaignIdFromReducer = null;
@@ -213,6 +212,25 @@
     let campaignOptions = [];
     let campaignCatalog = [];
     let syncInProgress = false;
+
+    function emitUiFilters() {
+      if (!(window.parent && window.parent !== window)) return;
+      window.parent.postMessage(
+        {
+          type: 'ffck:uiFiltersChanged',
+          page: 'helloasso',
+          filters: {
+            search: String(q?.value || ''),
+          },
+        },
+        window.location.origin,
+      );
+    }
+
+    function applyUiFilters(filters) {
+      if (!filters || typeof filters !== 'object') return;
+      if (typeof filters.search === 'string') q.value = filters.search;
+    }
 
     function createCampaignFromTemplate(year) {
       campaigns[year] = {
@@ -480,9 +498,7 @@
       const query = q.value.trim().toLowerCase();
       const filtered = currentRecords().filter((r) => {
         const text = Object.values(r).join(' ').toLowerCase();
-        const textMatch = text.includes(query);
-        const stateMatch = !onlyInvalid || r.valid !== 'Valide';
-        return textMatch && stateMatch;
+        return text.includes(query);
       });
 
       tbody.innerHTML = filtered.map((record, rowIdx) => `
@@ -536,9 +552,7 @@
       const visibleRows = currentRecords().filter((r) => {
         const query = q.value.trim().toLowerCase();
         const text = Object.values(r).join(' ').toLowerCase();
-        const textMatch = text.includes(query);
-        const stateMatch = !onlyInvalid || r.valid !== 'Valide';
-        return textMatch && stateMatch;
+        return text.includes(query);
       });
       const row = visibleRows[Number(cell.dataset.row)];
       if (!row) return;
@@ -626,11 +640,9 @@
       }).join('');
     }
 
-    q.addEventListener('input', renderRows);
-    toggleInvalid.addEventListener('click', () => {
-      onlyInvalid = !onlyInvalid;
-      toggleInvalid.textContent = onlyInvalid ? 'Afficher toutes les lignes' : 'Afficher uniquement les anomalies';
+    q.addEventListener('input', () => {
       renderRows();
+      emitUiFilters();
     });
 
     resetCols.addEventListener('click', () => {
@@ -642,8 +654,7 @@
       activeCampaignIdFromReducer = null;
       localStorage.setItem(CAMPAIGN_STORE_KEY, activeCampaign);
       q.value = '';
-      onlyInvalid = false;
-      toggleInvalid.textContent = 'Afficher uniquement les anomalies';
+      emitUiFilters();
       renderCampaignInfo();
       renderCampaignMonitor();
       render();
@@ -761,6 +772,7 @@
     window.addEventListener('message', (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== 'ffck:activeCampaignContext') return;
+      applyUiFilters(event.data?.uiFilters);
 
       const nextCampaignTitle =
         typeof event.data?.campaignTitle === 'string' ? event.data.campaignTitle.trim() : '';

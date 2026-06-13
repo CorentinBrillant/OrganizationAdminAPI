@@ -252,6 +252,10 @@ def campaign_members(request, campaign_id):
         name = _coerce_text(member_payload.get("name"))
         email = _coerce_text(member_payload.get("email"))
         ffck_licence = _coerce_text(member_payload.get("ffck_licence"))
+        ffck_certificat = _coerce_text(member_payload.get("ffck_certificat"))
+        ffck_certificat_expiration = _coerce_text(member_payload.get("ffck_certificat_expiration"))
+        ffck_licence_type = _coerce_text(member_payload.get("ffck_licence_type"))
+        helloasso_form_slug = _coerce_text(member_payload.get("helloasso_form_slug"))
         certificat = _coerce_text(member_payload.get("certificat"))
         autorisation_parentale = _coerce_text(member_payload.get("autorisation_parentale"))
         photo = _coerce_text(member_payload.get("photo"))
@@ -270,6 +274,10 @@ def campaign_members(request, campaign_id):
             first_name=first_name,
             name=name,
             ffck_licence=ffck_licence,
+            ffck_certificat=ffck_certificat,
+            ffck_certificat_expiration=ffck_certificat_expiration,
+            ffck_licence_type=ffck_licence_type,
+            helloasso_form_slug=helloasso_form_slug,
             email=email,
             certificat=certificat,
             autorisation_parentale=autorisation_parentale,
@@ -285,6 +293,10 @@ def campaign_members(request, campaign_id):
                     "first_name": member.first_name,
                     "name": member.name,
                     "ffck_licence": member.ffck_licence,
+                    "ffck_certificat": member.ffck_certificat,
+                    "ffck_certificat_expiration": member.ffck_certificat_expiration,
+                    "ffck_licence_type": member.ffck_licence_type,
+                    "helloasso_form_slug": member.helloasso_form_slug,
                     "email": member.email,
                     "created_at": member.created_at.isoformat(),
                     "campaign_id": member.campaign_id,
@@ -307,6 +319,10 @@ def campaign_members(request, campaign_id):
             "first_name": member.first_name,
             "name": member.name,
             "ffck_licence": member.ffck_licence,
+            "ffck_certificat": member.ffck_certificat,
+            "ffck_certificat_expiration": member.ffck_certificat_expiration,
+            "ffck_licence_type": member.ffck_licence_type,
+            "helloasso_form_slug": member.helloasso_form_slug,
             "email": member.email,
             "created_at": member.created_at.isoformat(),
             "campaign_id": member.campaign_id,
@@ -477,6 +493,26 @@ def campaign_manual_edition(request, campaign_id):
                 if member.ffck_licence != next_value:
                     member.ffck_licence = next_value
                     update_fields.append("ffck_licence")
+            if "ffck_certificat" in item:
+                next_value = _coerce_text(item.get("ffck_certificat"))
+                if member.ffck_certificat != next_value:
+                    member.ffck_certificat = next_value
+                    update_fields.append("ffck_certificat")
+            if "ffck_certificat_expiration" in item:
+                next_value = _coerce_text(item.get("ffck_certificat_expiration"))
+                if member.ffck_certificat_expiration != next_value:
+                    member.ffck_certificat_expiration = next_value
+                    update_fields.append("ffck_certificat_expiration")
+            if "ffck_licence_type" in item:
+                next_value = _coerce_text(item.get("ffck_licence_type"))
+                if member.ffck_licence_type != next_value:
+                    member.ffck_licence_type = next_value
+                    update_fields.append("ffck_licence_type")
+            if "helloasso_form_slug" in item:
+                next_value = _coerce_text(item.get("helloasso_form_slug"))
+                if member.helloasso_form_slug != next_value:
+                    member.helloasso_form_slug = next_value
+                    update_fields.append("helloasso_form_slug")
             if "email" in item:
                 next_value = _coerce_text(item.get("email"))
                 if member.email != next_value:

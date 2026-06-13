@@ -8,11 +8,9 @@ import {
   saveCampaignManualEdition,
 } from '../api/campaigns'
 
-const DEFAULT_CAMPAIGNS = ['2024', '2025', '2026']
-
 const initialState = {
-  items: DEFAULT_CAMPAIGNS,
-  activeCampaign: DEFAULT_CAMPAIGNS[DEFAULT_CAMPAIGNS.length - 1],
+  items: [],
+  activeCampaign: '',
   activeCampaignId: null,
   catalog: [],
   membersByCampaignId: {},
@@ -24,6 +22,13 @@ const initialState = {
   ffckLatestExportByCampaignId: {},
   manualSaveStatusByCampaignId: {},
   manualSaveErrorByCampaignId: {},
+  uiFiltersByPage: {
+    dashboard: { search: '', status: 'all', reason: 'all' },
+    helloasso: { search: '' },
+    ffck: { search: '' },
+    dedup: { minScore: '0.80' },
+    monitoring: {},
+  },
   status: 'idle',
   error: null,
 }
@@ -138,6 +143,24 @@ const campaignsSlice = createSlice({
         ...patch,
       }
     },
+    setPageFilters(state, action) {
+      const page = String(action.payload?.page || '').trim()
+      const filters = action.payload?.filters
+      if (!page || !filters || typeof filters !== 'object') return
+      const current = state.uiFiltersByPage?.[page]
+      const next = {
+        ...(current && typeof current === 'object' ? current : {}),
+        ...filters,
+      }
+      const keys = Object.keys(next)
+      const unchanged =
+        current &&
+        typeof current === 'object' &&
+        keys.length === Object.keys(current).length &&
+        keys.every((key) => current[key] === next[key])
+      if (unchanged) return
+      state.uiFiltersByPage[page] = next
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -148,21 +171,26 @@ const campaignsSlice = createSlice({
       .addCase(loadCampaigns.fulfilled, (state, action) => {
         state.status = 'succeeded'
         const nextCatalog = Array.isArray(action.payload) ? action.payload : []
-        if (nextCatalog.length === 0) {
-          return
-        }
-
         state.catalog = nextCatalog
         const nextCampaigns = [...new Set(nextCatalog.map((campaign) => campaign.title))]
         state.items = nextCampaigns
+        if (nextCampaigns.length === 0) {
+          state.activeCampaign = ''
+          state.activeCampaignId = null
+          return
+        }
         if (!nextCampaigns.includes(state.activeCampaign)) {
-          state.activeCampaign = nextCampaigns[nextCampaigns.length - 1]
+          state.activeCampaign = nextCampaigns[nextCampaigns.length - 1] || ''
         }
         const active = nextCatalog.find((campaign) => campaign.title === state.activeCampaign)
         state.activeCampaignId = active?.id ?? null
       })
       .addCase(loadCampaigns.rejected, (state, action) => {
         state.status = 'failed'
+        state.catalog = []
+        state.items = []
+        state.activeCampaign = ''
+        state.activeCampaignId = null
         state.error = action.error.message || 'Impossible de charger les campagnes'
       })
       .addCase(createCampaign.pending, (state) => {
@@ -262,5 +290,5 @@ const campaignsSlice = createSlice({
   },
 })
 
-export const { setActiveCampaign, addCampaign, upsertCampaignMemberPatch } = campaignsSlice.actions
+export const { setActiveCampaign, addCampaign, upsertCampaignMemberPatch, setPageFilters } = campaignsSlice.actions
 export default campaignsSlice.reducer

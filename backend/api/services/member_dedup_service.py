@@ -156,21 +156,30 @@ class MemberDedupService:
             drop = right
 
         update_fields = []
-        if not keep.ffck_licence and drop.ffck_licence:
-            keep.ffck_licence = drop.ffck_licence
-            update_fields.append("ffck_licence")
-        if not keep.email and drop.email:
-            keep.email = drop.email
-            update_fields.append("email")
-        if not keep.certificat and drop.certificat:
-            keep.certificat = drop.certificat
-            update_fields.append("certificat")
-        if not keep.autorisation_parentale and drop.autorisation_parentale:
-            keep.autorisation_parentale = drop.autorisation_parentale
-            update_fields.append("autorisation_parentale")
-        if not keep.photo and drop.photo:
-            keep.photo = drop.photo
-            update_fields.append("photo")
+
+        def _is_blank(value) -> bool:
+            return not isinstance(value, str) or not value.strip()
+
+        text_fields = (
+            "first_name",
+            "name",
+            "ffck_licence",
+            "ffck_certificat",
+            "ffck_certificat_expiration",
+            "ffck_licence_type",
+            "helloasso_form_slug",
+            "email",
+            "certificat",
+            "autorisation_parentale",
+            "photo",
+        )
+        for field in text_fields:
+            keep_value = getattr(keep, field, "")
+            drop_value = getattr(drop, field, "")
+            if _is_blank(keep_value) and not _is_blank(drop_value):
+                setattr(keep, field, str(drop_value).strip())
+                update_fields.append(field)
+
         if not keep.option_ia and drop.option_ia:
             keep.option_ia = True
             update_fields.append("option_ia")
@@ -199,22 +208,10 @@ class MemberDedupService:
             resolved_at=timezone.now(),
         )
 
-        if suggestion.member_left_id == drop.id:
-            suggestion.member_left = keep
-        if suggestion.member_right_id == drop.id:
-            suggestion.member_right = keep
-        suggestion.status = MemberDuplicateSuggestion.STATUS_ACCEPTED
-        suggestion.resolved_at = timezone.now()
-        suggestion.recommended_master = keep
-        suggestion.save(
-            update_fields=[
-                "member_left",
-                "member_right",
-                "status",
-                "resolved_at",
-                "recommended_master",
-            ]
-        )
+        # Do not rewrite both sides to `keep`; that can produce self-pairs
+        # like (campaign, keep, keep) and trigger unique-constraint collisions
+        # on subsequent merges. We resolve and remove the processed suggestion.
+        suggestion.delete()
 
         drop.delete()
 

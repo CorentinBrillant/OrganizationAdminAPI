@@ -133,6 +133,20 @@
       color: var(--muted);
       font-size: 0.87rem;
     }
+    .selected-count {
+      color: var(--muted);
+      font-size: 0.87rem;
+    }
+    .select-col {
+      width: 42px;
+      text-align: center;
+    }
+    .select-col input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      cursor: pointer;
+    }
     .table-wrap {
       overflow: auto;
       border: 1px solid var(--border);
@@ -223,6 +237,8 @@
         <input id="minScore" type="number" min="0" max="1" step="0.01" value="0.80" />
         <button id="refreshSuggestions" class="primary" type="button">Analyser les doublons</button>
         <button id="reloadList" class="ghost" type="button">Recharger la liste</button>
+        <button id="mergeSelected" class="danger" type="button" disabled>Fusionner la selection</button>
+        <span id="selectedCount" class="selected-count" aria-live="polite">0 selectionnee(s)</span>
         <span id="status" class="status" aria-live="polite"></span>
       </div>
     </section>
@@ -232,6 +248,7 @@
         <table>
           <thead>
             <tr>
+              <th class="select-col"><input id="selectAllSuggestions" type="checkbox" aria-label="Tout selectionner" /></th>
               <th>Score</th>
               <th>Membre A</th>
               <th>Membre B</th>
@@ -269,12 +286,38 @@
     const minScoreInput = document.getElementById('minScore');
     const refreshSuggestions = document.getElementById('refreshSuggestions');
     const reloadList = document.getElementById('reloadList');
+    const mergeSelected = document.getElementById('mergeSelected');
+    const selectedCountEl = document.getElementById('selectedCount');
+    const selectAllSuggestions = document.getElementById('selectAllSuggestions');
     const statusEl = document.getElementById('status');
     const rowsEl = document.getElementById('rows');
 
     let activeCampaignId = null;
     let activeCampaignTitle = '';
     let currentSuggestions = [];
+    let selectedSuggestionIds = new Set();
+    let isMerging = false;
+
+    function emitUiFilters() {
+      if (!(window.parent && window.parent !== window)) return;
+      window.parent.postMessage(
+        {
+          type: 'ffck:uiFiltersChanged',
+          page: 'dedup',
+          filters: {
+            minScore: String(minScoreInput?.value || '0.80'),
+          },
+        },
+        window.location.origin,
+      );
+    }
+
+    function applyUiFilters(filters) {
+      if (!filters || typeof filters !== 'object') return;
+      if (typeof filters.minScore === 'string' && filters.minScore.trim()) {
+        minScoreInput.value = filters.minScore;
+      }
+    }
 
     function getCookie(name) {
       const cookie = document.cookie || '';
@@ -290,27 +333,62 @@
       statusEl.textContent = message || '';
     }
 
+    function updateSelectionUi() {
+      const selectedCount = selectedSuggestionIds.size;
+      selectedCountEl.textContent = String(selectedCount) + ' selectionnee(s)';
+      mergeSelected.disabled = isMerging || selectedCount === 0;
+
+      const visibleIds = currentSuggestions
+        .map((suggestion) => Number(suggestion?.id))
+        .filter((id) => Number.isFinite(id));
+      const visibleSelectedCount = visibleIds.filter((id) => selectedSuggestionIds.has(id)).length;
+      selectAllSuggestions.disabled = isMerging || visibleIds.length === 0;
+      selectAllSuggestions.checked = visibleIds.length > 0 && visibleSelectedCount === visibleIds.length;
+      selectAllSuggestions.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleIds.length;
+    }
+
+    function setMergeState(nextValue) {
+      isMerging = Boolean(nextValue);
+      refreshSuggestions.disabled = isMerging;
+      reloadList.disabled = isMerging;
+      minScoreInput.disabled = isMerging;
+      updateSelectionUi();
+    }
+
     function formatReasons(reasons) {
       if (!Array.isArray(reasons) || reasons.length === 0) return '<span class="tag">similaire</span>';
       return reasons.map((reason) => '<span class="tag">' + String(reason) + '</span>').join('');
     }
 
     function renderRows() {
+      const validIds = new Set(
+        currentSuggestions
+          .map((suggestion) => Number(suggestion?.id))
+          .filter((id) => Number.isFinite(id))
+      );
+      selectedSuggestionIds = new Set(
+        Array.from(selectedSuggestionIds).filter((id) => validIds.has(id))
+      );
+
       if (!Array.isArray(currentSuggestions) || currentSuggestions.length === 0) {
-        rowsEl.innerHTML = '<tr><td class="empty" colspan="5">Aucune suggestion pour ce score.</td></tr>';
+        rowsEl.innerHTML = '<tr><td class="empty" colspan="6">Aucune suggestion pour ce score.</td></tr>';
+        updateSelectionUi();
         return;
       }
 
       rowsEl.innerHTML = currentSuggestions.map((suggestion) => {
         const memberLeft = suggestion.member_left || {};
         const memberRight = suggestion.member_right || {};
+        const suggestionId = Number(suggestion.id || 0);
         const score = Number(suggestion.similarity_score || 0).toFixed(2);
         const recommendedId = Number(suggestion.recommended_master_id || 0);
         const leftId = Number(memberLeft.id || 0);
         const rightId = Number(memberRight.id || 0);
         const recLabel = recommendedId === leftId ? 'A' : (recommendedId === rightId ? 'B' : 'auto');
+        const isSelected = selectedSuggestionIds.has(suggestionId);
         return (
           '<tr>' +
+            '<td class="select-col"><input type="checkbox" data-role="suggestion-select" data-suggestion-id="' + String(suggestionId) + '"' + (isSelected ? ' checked' : '') + (isMerging ? ' disabled' : '') + ' aria-label="Selectionner la suggestion" /></td>' +
             '<td><span class="score">' + score + '</span></td>' +
             '<td><div class="person">' +
               '<strong>' + String(memberLeft.first_name || '') + ' ' + String(memberLeft.name || '') + '</strong>' +
@@ -324,13 +402,14 @@
             '</div></td>' +
             '<td><div class="reasons">' + formatReasons(suggestion.reasons) + '</div></td>' +
             '<td><div class="actions">' +
-              '<button class="primary" data-action="merge" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(recommendedId || '') + '">Fusionner (reco ' + recLabel + ')</button>' +
-              '<button data-action="keep-left" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(leftId) + '">Garder A</button>' +
-              '<button data-action="keep-right" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(rightId) + '">Garder B</button>' +
+              '<button class="primary" data-action="merge" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(recommendedId || '') + '"' + (isMerging ? ' disabled' : '') + '>Fusionner (reco ' + recLabel + ')</button>' +
+              '<button data-action="keep-left" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(leftId) + '"' + (isMerging ? ' disabled' : '') + '>Garder A</button>' +
+              '<button data-action="keep-right" data-suggestion-id="' + String(suggestion.id) + '" data-keep-id="' + String(rightId) + '"' + (isMerging ? ' disabled' : '') + '>Garder B</button>' +
             '</div></td>' +
           '</tr>'
         );
       }).join('');
+      updateSelectionUi();
     }
 
     async function fetchSuggestions(refresh) {
@@ -373,14 +452,13 @@
       }
     }
 
-    async function mergeSuggestion(suggestionId, keepMemberId) {
+    async function mergeSuggestionRequest(suggestionId, keepMemberId) {
       if (!Number.isFinite(Number(activeCampaignId))) return;
       if (!Number.isFinite(Number(suggestionId))) return;
 
       const body = { suggestion_id: Number(suggestionId) };
       if (Number.isFinite(Number(keepMemberId))) body.keep_member_id = Number(keepMemberId);
 
-      setStatus('Fusion en cours...');
       try {
         const response = await fetch('/api/campaigns/member-duplicates/merge/?campaignId=' + encodeURIComponent(String(activeCampaignId)), {
           method: 'POST',
@@ -393,23 +471,94 @@
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           const message = payload?.error || ('Erreur HTTP ' + response.status);
-          setStatus('Fusion en echec: ' + message);
-          return;
+          return { success: false, message: message };
         }
-        setStatus('Fusion terminee');
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
-        }
-        await fetchSuggestions(false);
+        return { success: true, message: '' };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erreur inconnue';
-        setStatus('Fusion en echec: ' + message);
+        return { success: false, message: message };
       }
+    }
+
+    async function mergeSuggestion(suggestionId, keepMemberId) {
+      setMergeState(true);
+      setStatus('Fusion en cours...');
+      const result = await mergeSuggestionRequest(suggestionId, keepMemberId);
+      if (!result?.success) {
+        setStatus('Fusion en echec: ' + String(result?.message || 'Erreur inconnue'));
+        setMergeState(false);
+        return;
+      }
+      selectedSuggestionIds.delete(Number(suggestionId));
+      await fetchSuggestions(false);
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+      }
+      setStatus('Fusion terminee');
+      setMergeState(false);
+    }
+
+    async function mergeSelectedSuggestions() {
+      const suggestionsToMerge = currentSuggestions.filter((suggestion) =>
+        selectedSuggestionIds.has(Number(suggestion?.id))
+      );
+      if (suggestionsToMerge.length === 0) {
+        updateSelectionUi();
+        return;
+      }
+      if (!window.confirm('Confirmer la fusion de ' + String(suggestionsToMerge.length) + ' suggestion(s) selectionnee(s) ?')) {
+        return;
+      }
+
+      setMergeState(true);
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (let index = 0; index < suggestionsToMerge.length; index += 1) {
+        const suggestion = suggestionsToMerge[index];
+        const suggestionId = Number(suggestion?.id);
+        const keepMemberId = Number(suggestion?.recommended_master_id);
+        if (!Number.isFinite(suggestionId)) {
+          failureCount += 1;
+          continue;
+        }
+
+        setStatus(
+          'Fusion en lot en cours (' +
+          String(index + 1) +
+          '/' +
+          String(suggestionsToMerge.length) +
+          ')...'
+        );
+
+        const result = await mergeSuggestionRequest(
+          suggestionId,
+          Number.isFinite(keepMemberId) ? keepMemberId : null
+        );
+        if (result?.success) {
+          successCount += 1;
+          selectedSuggestionIds.delete(suggestionId);
+        } else {
+          failureCount += 1;
+        }
+      }
+
+      await fetchSuggestions(false);
+      if (successCount > 0 && window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'ffck:refreshActiveCampaignMembers' }, window.location.origin);
+      }
+      if (failureCount > 0) {
+        setStatus('Fusion en lot partielle: ' + String(successCount) + ' reussie(s), ' + String(failureCount) + ' en echec');
+      } else {
+        setStatus('Fusion en lot terminee: ' + String(successCount) + ' suggestion(s) fusionnee(s)');
+      }
+      setMergeState(false);
     }
 
     rowsEl.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-action]');
       if (!button) return;
+      if (isMerging) return;
       const suggestionId = Number(button.getAttribute('data-suggestion-id'));
       const keepId = Number(button.getAttribute('data-keep-id'));
       if (!Number.isFinite(suggestionId)) return;
@@ -417,16 +566,48 @@
       mergeSuggestion(suggestionId, keepId);
     });
 
+    rowsEl.addEventListener('change', (event) => {
+      const checkbox = event.target.closest('input[data-role="suggestion-select"]');
+      if (!checkbox) return;
+      if (isMerging) return;
+      const suggestionId = Number(checkbox.getAttribute('data-suggestion-id'));
+      if (!Number.isFinite(suggestionId)) return;
+      if (checkbox.checked) {
+        selectedSuggestionIds.add(suggestionId);
+      } else {
+        selectedSuggestionIds.delete(suggestionId);
+      }
+      updateSelectionUi();
+    });
+
+    selectAllSuggestions.addEventListener('change', () => {
+      if (isMerging) return;
+      const visibleIds = currentSuggestions
+        .map((suggestion) => Number(suggestion?.id))
+        .filter((id) => Number.isFinite(id));
+      if (selectAllSuggestions.checked) {
+        for (const id of visibleIds) selectedSuggestionIds.add(id);
+      } else {
+        for (const id of visibleIds) selectedSuggestionIds.delete(id);
+      }
+      renderRows();
+    });
+
     refreshSuggestions.addEventListener('click', () => fetchSuggestions(true));
     reloadList.addEventListener('click', () => fetchSuggestions(false));
+    mergeSelected.addEventListener('click', mergeSelectedSuggestions);
+    minScoreInput.addEventListener('change', emitUiFilters);
+    minScoreInput.addEventListener('input', emitUiFilters);
 
     window.addEventListener('message', (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== 'ffck:activeCampaignContext') return;
+      applyUiFilters(event.data?.uiFilters);
 
       const nextCampaignId = Number(event.data?.campaignId);
       activeCampaignId = Number.isFinite(nextCampaignId) ? nextCampaignId : null;
       activeCampaignTitle = String(event.data?.campaignTitle || '').trim();
+      selectedSuggestionIds.clear();
       campaignInfo.textContent = 'Campagne active: ' + (activeCampaignTitle || '—');
       fetchSuggestions(false);
     });
