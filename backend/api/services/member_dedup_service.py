@@ -6,7 +6,14 @@ from difflib import SequenceMatcher
 from django.db import transaction
 from django.utils import timezone
 
-from ..models import Campaign, FfckExportRow, HelloAssoItem, Member, MemberDuplicateSuggestion
+from ..models import (
+    BadgeImportRow,
+    Campaign,
+    FfckExportRow,
+    HelloAssoItem,
+    Member,
+    MemberDuplicateSuggestion,
+)
 
 NORMALIZE_SPACE_RE = re.compile(r"\s+")
 PUNCT_RE = re.compile(r"[^a-z0-9 ]")
@@ -134,7 +141,9 @@ class MemberDedupService:
         }
 
     @transaction.atomic
-    def merge_suggestion(self, suggestion: MemberDuplicateSuggestion, keep_member_id: int | None = None) -> dict:
+    def merge_suggestion(
+        self, suggestion: MemberDuplicateSuggestion, keep_member_id: int | None = None
+    ) -> dict:
         if suggestion.campaign_id != self.campaign.id:
             raise ValueError("Suggestion does not belong to this campaign.")
         if suggestion.status != MemberDuplicateSuggestion.STATUS_PENDING:
@@ -186,12 +195,19 @@ class MemberDedupService:
         if not keep.manual_review and drop.manual_review:
             keep.manual_review = True
             update_fields.append("manual_review")
+        if not keep.badge_owned and drop.badge_owned:
+            keep.badge_owned = True
+            update_fields.append("badge_owned")
+        if not keep.badge_ordered and drop.badge_ordered:
+            keep.badge_ordered = True
+            update_fields.append("badge_ordered")
 
         if update_fields:
             keep.save(update_fields=update_fields)
 
         helloasso_updated = HelloAssoItem.objects.filter(member=drop).update(member=keep)
         ffck_rows_updated = FfckExportRow.objects.filter(member=drop).update(member=keep)
+        badge_rows_updated = BadgeImportRow.objects.filter(member=drop).update(member=keep)
 
         MemberDuplicateSuggestion.objects.filter(
             campaign=self.campaign,
@@ -221,4 +237,5 @@ class MemberDedupService:
             "deleted_member_id": drop.id,
             "helloasso_items_relinked": helloasso_updated,
             "ffck_rows_relinked": ffck_rows_updated,
+            "badge_rows_relinked": badge_rows_updated,
         }

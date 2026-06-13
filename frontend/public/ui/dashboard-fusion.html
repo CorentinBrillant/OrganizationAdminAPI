@@ -276,6 +276,8 @@
       { key: 'autorisation_parentale', label: 'Autorisation parentale' },
       { key: 'photo', label: 'Photo' },
       { key: 'option_ia', label: 'Option IA' },
+      { key: 'badge_owned', label: 'Badge possédé' },
+      { key: 'badge_ordered', label: 'Badge commandé' },
       { key: 'paiement', label: 'Paiement' }
     ];
 
@@ -507,6 +509,8 @@
         autorisation_parentale: member.autorisation_parentale || '—',
         photo: member.photo || '—',
         option_ia: member.option_ia ? 'Oui' : 'Non',
+        badge_owned: member.badge_owned ? 'Oui' : 'Non',
+        badge_ordered: member.badge_ordered ? 'Oui' : 'Non',
         manual_review: member.manual_review ? 'vérifié' : 'non vérifié',
         paiement: '—',
         statut: '—',
@@ -802,6 +806,8 @@
         photo: normalizeOptionalLink(row.photo),
         option_ia: toBooleanFromCellValue(row.option_ia),
         manual_review: toBooleanFromCellValue(row.manual_review),
+        badge_owned: toBooleanFromCellValue(row.badge_owned),
+        badge_ordered: toBooleanFromCellValue(row.badge_ordered),
       };
     }
 
@@ -852,6 +858,8 @@
           photo: normalizeOptionalLink(row.photo),
           option_ia: toBooleanFromCellValue(row.option_ia),
           manual_review: toBooleanFromCellValue(row.manual_review),
+          badge_owned: toBooleanFromCellValue(row.badge_owned),
+          badge_ordered: toBooleanFromCellValue(row.badge_ordered),
         }));
     }
 
@@ -919,6 +927,8 @@
           ffck_licence: '',
           manual_review: false,
           option_ia: false,
+          badge_owned: false,
+          badge_ordered: false,
         }),
       });
 

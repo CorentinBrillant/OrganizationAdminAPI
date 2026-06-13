@@ -13,17 +13,36 @@ from .models import (
 
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "status", "helloasso_form_slug", "last_merge", "last_manual_edition", "created_at")
-    list_filter = ("status", "last_merge", "last_manual_edition", "created_at")
-    search_fields = ("title", "status", "helloasso_form_slug")
+    list_display = (
+        "id",
+        "title",
+        "status",
+        "helloasso_form_slug",
+        "last_merge",
+        "last_manual_edition",
+        "created_at",
+    )
+    list_filter = ("last_merge", "last_manual_edition", "created_at")
+    search_fields = ("id",)
     ordering = ("-created_at",)
 
 
 @admin.register(Member)
 class MemberAdmin(admin.ModelAdmin):
-    list_display = ("id", "first_name", "name", "email", "photo", "option_ia", "manual_review", "ffck_licence", "campaign", "created_at")
+    list_display = (
+        "id",
+        "first_name",
+        "name",
+        "email",
+        "photo",
+        "option_ia",
+        "manual_review",
+        "ffck_licence",
+        "campaign",
+        "created_at",
+    )
     list_filter = ("campaign", "option_ia", "manual_review", "created_at")
-    search_fields = ("first_name", "name", "email", "certificat", "autorisation_parentale", "photo", "ffck_licence", "campaign__title")
+    search_fields = ("id", "campaign__id")
     ordering = ("-created_at",)
 
 
@@ -40,8 +59,8 @@ class HelloAssoImportAdmin(admin.ModelAdmin):
         "items_count",
         "fetched_at",
     )
-    list_filter = ("campaign", "source", "with_details", "form_type", "fetched_at")
-    search_fields = ("campaign__title", "organization_slug", "form_slug")
+    list_filter = ("campaign", "with_details", "fetched_at")
+    search_fields = ("id", "campaign__id")
     ordering = ("-fetched_at",)
 
 
@@ -60,16 +79,8 @@ class HelloAssoItemAdmin(admin.ModelAdmin):
         "paid_at",
         "last_synced_at",
     )
-    list_filter = ("member", "form_type", "status", "last_synced_at")
-    search_fields = (
-        "helloasso_id",
-        "member__first_name",
-        "member__name",
-        "member__email",
-        "payer_email",
-        "organization_slug",
-        "form_slug",
-    )
+    list_filter = ("member", "last_synced_at")
+    search_fields = ("id", "member__id", "helloasso_lookup_key")
     ordering = ("-last_synced_at",)
 
 
@@ -85,8 +96,8 @@ class FfckExportAdmin(admin.ModelAdmin):
         "file_size",
         "fetched_at",
     )
-    list_filter = ("campaign", "source", "structure_id", "export_method", "fetched_at")
-    search_fields = ("campaign__title", "filename", "structure_select_path", "export_path", "file_sha256")
+    list_filter = ("campaign", "structure_id", "fetched_at")
+    search_fields = ("id", "campaign__id")
     ordering = ("-fetched_at",)
 
 
@@ -102,8 +113,8 @@ class FfckExportRowAdmin(admin.ModelAdmin):
         "member",
         "created_at",
     )
-    list_filter = ("ffck_export__campaign", "categorie", "created_at")
-    search_fields = ("licence", "nom", "categorie", "member__email", "ffck_export__campaign__title")
+    list_filter = ("ffck_export__campaign", "created_at")
+    search_fields = ("id", "member__id", "ffck_export__campaign__id")
     ordering = ("ffck_export", "row_index")
 
 
@@ -121,11 +132,5 @@ class MemberDuplicateSuggestionAdmin(admin.ModelAdmin):
         "resolved_at",
     )
     list_filter = ("campaign", "status", "created_at", "resolved_at")
-    search_fields = (
-        "campaign__title",
-        "member_left__first_name",
-        "member_left__name",
-        "member_right__first_name",
-        "member_right__name",
-    )
+    search_fields = ("id", "campaign__id", "member_left__id", "member_right__id")
     ordering = ("-similarity_score", "-created_at")

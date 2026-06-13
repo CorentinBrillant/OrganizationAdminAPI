@@ -1,15 +1,22 @@
 import json
 import os
 import time
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from django.test import TestCase, override_settings
 
+from .auth import create_user_token
 from .models import (
+    BadgeImport,
+    BadgeImportRow,
     Campaign,
     FfckExport,
     FfckExportRow,
@@ -19,8 +26,159 @@ from .models import (
     MemberDuplicateSuggestion,
 )
 from .services.federation_extranet_service import ExtranetExcelExtraction, FederationExtranetService
+from .services.badge_import_service import BadgeExcelExtraction, BadgeImportService
 from .services.ffck_export_import_service import FfckExportImportService
-from .services.member_sync_service import FfckMemberSyncService, HelloAssoMemberSyncService
+from .services.member_sync_service import (
+    BadgeMemberSyncService,
+    FfckMemberSyncService,
+    HelloAssoMemberSyncService,
+)
+
+
+def build_test_xlsx(rows: list[list[str]]) -> bytes:
+    escaped_rows = []
+    for row_index, row in enumerate(rows, start=1):
+        cells = []
+        for col_index, value in enumerate(row, start=1):
+            column = ""
+            idx = col_index
+            while idx > 0:
+                idx, rem = divmod(idx - 1, 26)
+                column = chr(65 + rem) + column
+            cell_ref = f"{column}{row_index}"
+            text = str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            cells.append(f'<c r="{cell_ref}" t="inlineStr"><is><t>{text}</t></is></c>')
+        escaped_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+
+    worksheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"<sheetData>{''.join(escaped_rows)}</sheetData>"
+        "</worksheet>"
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types_xml)
+        zf.writestr("_rels/.rels", root_rels_xml)
+        zf.writestr("xl/workbook.xml", workbook_xml)
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        zf.writestr("xl/worksheets/sheet1.xml", worksheet_xml)
+    return output.getvalue()
+
+
+def _find_member(campaign: Campaign, **expected):
+    for member in Member.objects.filter(campaign=campaign).order_by("id"):
+        if all(getattr(member, key) == value for key, value in expected.items()):
+            return member
+    return None
+
+
+class AuthenticatedApiTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+        user_model = get_user_model()
+        username = f"{self.__class__.__name__.lower()}-user"
+        self.auth_user = user_model.objects.create_user(username=username, password="pass1234")
+        self.auth_token = create_user_token(self.auth_user)
+        self.client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {self.auth_token}"
+
+
+class ApiAuthenticationTests(TestCase):
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_login_returns_temporary_token_and_protects_api(self):
+        user_model = get_user_model()
+        user_model.objects.create_user(username="alice", password="pass1234")
+
+        unauthorized = self.client.get("/api/campaigns/")
+        self.assertEqual(unauthorized.status_code, 401)
+
+        login_response = self.client.post(
+            "/api/auth/login/",
+            data={"username": "alice", "password": "pass1234"},
+            content_type="application/json",
+        )
+        self.assertEqual(login_response.status_code, 200)
+        body = login_response.json()
+        token = str(body.get("token", "")).strip()
+        self.assertTrue(token)
+        self.assertEqual(body.get("token_type"), "Bearer")
+        self.assertTrue(int(body.get("expires_in") or 0) > 0)
+
+        authorized = self.client.get(
+            "/api/campaigns/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(authorized.status_code, 200)
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_logout_revokes_current_token(self):
+        user_model = get_user_model()
+        user_model.objects.create_user(username="bob", password="pass1234")
+
+        login_response = self.client.post(
+            "/api/auth/login/",
+            data={"username": "bob", "password": "pass1234"},
+            content_type="application/json",
+        )
+        self.assertEqual(login_response.status_code, 200)
+        token = str(login_response.json().get("token", "")).strip()
+        self.assertTrue(token)
+
+        before_logout = self.client.get(
+            "/api/campaigns/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(before_logout.status_code, 200)
+
+        logout_response = self.client.post(
+            "/api/auth/logout/",
+            data={},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(logout_response.status_code, 200)
+        self.assertTrue(bool(logout_response.json().get("logged_out")))
+
+        after_logout = self.client.get(
+            "/api/campaigns/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(after_logout.status_code, 401)
 
 
 class HelloAssoMemberSyncServiceTests(TestCase):
@@ -91,7 +249,7 @@ class HelloAssoMemberSyncServiceTests(TestCase):
                     "firstName": "Bob",
                     "lastName": "Martin",
                     "email": "bob@example.com",
-                }
+                },
             },
         )
 
@@ -100,7 +258,8 @@ class HelloAssoMemberSyncServiceTests(TestCase):
         )
 
         item.refresh_from_db()
-        created_member = Member.objects.get(campaign=self.campaign, email="bob@example.com")
+        created_member = _find_member(self.campaign, email="bob@example.com")
+        self.assertIsNotNone(created_member)
         self.assertEqual(item.member_id, created_member.id)
         self.assertEqual(created_member.first_name, "Bob")
         self.assertEqual(created_member.name, "Martin")
@@ -123,7 +282,7 @@ class HelloAssoMemberSyncServiceTests(TestCase):
                     "firstName": "Bob",
                     "lastName": "Martin",
                     "email": "bob@example.com",
-                }
+                },
             },
         )
         second_item = HelloAssoItem.objects.create(
@@ -140,7 +299,7 @@ class HelloAssoMemberSyncServiceTests(TestCase):
                     "firstName": "Bob",
                     "lastName": "Martin",
                     "email": "bob@example.com",
-                }
+                },
             },
         )
 
@@ -150,12 +309,12 @@ class HelloAssoMemberSyncServiceTests(TestCase):
 
         first_item.refresh_from_db()
         second_item.refresh_from_db()
-        member = Member.objects.get(campaign=self.campaign, email="bob@example.com")
+        member = _find_member(self.campaign, email="bob@example.com")
+        self.assertIsNotNone(member)
         self.assertEqual(first_item.member_id, member.id)
         self.assertEqual(second_item.member_id, member.id)
         self.assertEqual(member.helloasso_form_slug, "inscription-competition")
         self.assertEqual(summary["linked_items"], 2)
-
 
     def test_sync_extracts_document_links_from_item_rows(self):
         item = HelloAssoItem.objects.create(
@@ -202,7 +361,9 @@ class HelloAssoMemberSyncServiceTests(TestCase):
         item.refresh_from_db()
         member = item.member
         self.assertIsNotNone(member)
-        self.assertEqual(member.certificat, "https://docs.helloasso.com/customFieldsAnswer/182720510")
+        self.assertEqual(
+            member.certificat, "https://docs.helloasso.com/customFieldsAnswer/182720510"
+        )
         self.assertEqual(
             member.autorisation_parentale,
             "https://docs.helloasso.com/customFieldsAnswer/182720511",
@@ -267,7 +428,7 @@ class HelloAssoMemberSyncServiceTests(TestCase):
         self.assertEqual(Member.objects.filter(campaign=self.campaign).count(), 1)
 
 
-class HelloAssoSyncMembersViewTests(TestCase):
+class HelloAssoSyncMembersViewTests(AuthenticatedApiTestCase):
     def test_sync_members_endpoint_runs_for_campaign(self):
         campaign = Campaign.objects.create(
             title="Campagne sync",
@@ -315,7 +476,7 @@ class HelloAssoSyncMembersViewTests(TestCase):
         self.assertIsNotNone(campaign.last_merge)
 
 
-class FfckSyncMembersViewTests(TestCase):
+class FfckSyncMembersViewTests(AuthenticatedApiTestCase):
     def test_sync_members_endpoint_links_rows_and_updates_member_licence(self):
         campaign = Campaign.objects.create(
             title="Campagne sync ffck",
@@ -376,7 +537,151 @@ class FfckSyncMembersViewTests(TestCase):
         self.assertIsNotNone(campaign.last_merge)
 
 
-class CampaignSyncMembersViewTests(TestCase):
+class BadgeImportAndSyncServiceTests(TestCase):
+    def setUp(self):
+        self.campaign = Campaign.objects.create(
+            title="Campagne badges",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-badges",
+        )
+        self.member = Member.objects.create(
+            campaign=self.campaign,
+            first_name="John",
+            name="Doe",
+            email="john@example.com",
+            ffck_licence="ABC123",
+        )
+
+    def test_import_and_sync_marks_member_badges(self):
+        content = build_test_xlsx(
+            [
+                ["Nom", "Prénom", "Licence", "Badge possédé", "Badge commandé"],
+                ["Doe", "John", "ABC123", "oui", ""],
+                ["Unknown", "Person", "NOPE", "", "oui"],
+            ]
+        )
+        extraction = BadgeExcelExtraction(
+            filename="badges.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            content=content,
+        )
+
+        import_summary = BadgeImportService(campaign=self.campaign).import_extraction(extraction)
+        sync_summary = BadgeMemberSyncService(campaign=self.campaign).sync_latest_import()
+
+        self.assertEqual(import_summary["rows_count"], 2)
+        self.assertEqual(sync_summary["linked_rows"], 1)
+        self.assertEqual(sync_summary["skipped_rows"], 1)
+
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.badge_owned)
+        self.assertFalse(self.member.badge_ordered)
+
+    def test_sync_matches_on_name_and_first_name_not_licence(self):
+        content = build_test_xlsx(
+            [
+                ["Nom", "Prénom", "Licence", "Badge commandé"],
+                ["Doe", "John", "DIFFERENT-LICENCE", "oui"],
+            ]
+        )
+        extraction = BadgeExcelExtraction(
+            filename="badges.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            content=content,
+        )
+
+        BadgeImportService(campaign=self.campaign).import_extraction(extraction)
+        sync_summary = BadgeMemberSyncService(campaign=self.campaign).sync_latest_import()
+
+        self.assertEqual(sync_summary["linked_rows"], 1)
+        self.assertEqual(sync_summary["skipped_rows"], 0)
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.badge_ordered)
+
+
+class BadgeImportAndSyncViewTests(AuthenticatedApiTestCase):
+    def test_badge_import_endpoint_imports_and_syncs_members(self):
+        campaign = Campaign.objects.create(
+            title="Campagne badges endpoint",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-badges-endpoint",
+        )
+        member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Martin",
+            email="alice@example.com",
+            ffck_licence="LIC-999",
+        )
+        content = build_test_xlsx(
+            [
+                ["Nom", "Prénom", "Licence", "Statut badge"],
+                ["Martin", "Alice", "LIC-999", "commandé"],
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/badges/import/?campaignId={campaign.id}",
+            data={
+                "file": SimpleUploadedFile(
+                    "badges.xlsx",
+                    content,
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["campaign_id"], campaign.id)
+        self.assertEqual(body["import"]["rows_count"], 1)
+        self.assertEqual(body["member_sync"]["linked_rows"], 1)
+
+        member.refresh_from_db()
+        self.assertFalse(member.badge_owned)
+        self.assertTrue(member.badge_ordered)
+
+    def test_badges_latest_rows_endpoint_returns_latest_import_rows(self):
+        campaign = Campaign.objects.create(
+            title="Campagne badges latest",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-badges-latest",
+        )
+        badge_import = BadgeImport.objects.create(
+            campaign=campaign,
+            source="badge_excel",
+            rows_count=1,
+            filename="badges.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_size=10,
+            file_sha256="b" * 64,
+            file_blob=b"xlsx",
+        )
+        BadgeImportRow.objects.create(
+            badge_import=badge_import,
+            row_index=1,
+            name="Durand",
+            first_name="Bob",
+            licence="L-1",
+            badge_owned=True,
+            badge_ordered=False,
+            raw_row={"nom": "Durand", "prenom": "Bob"},
+        )
+
+        response = self.client.get(f"/api/badges/rows/latest/?campaignId={campaign.id}")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["campaign_id"], campaign.id)
+        self.assertEqual(len(body["rows"]), 1)
+        self.assertEqual(body["rows"][0]["licence"], "L-1")
+        self.assertEqual(body["rows"][0]["badge_owned"], True)
+
+
+class CampaignSyncMembersViewTests(AuthenticatedApiTestCase):
     def test_sync_members_endpoint_runs_helloasso_then_ffck(self):
         campaign = Campaign.objects.create(
             title="Campagne sync complete",
@@ -442,9 +747,11 @@ class CampaignSyncMembersViewTests(TestCase):
         self.assertEqual(body["helloasso_member_sync"]["linked_items"], 1)
         self.assertEqual(body["ffck_member_sync"]["linked_rows"], 1)
         self.assertEqual(body["ffck_member_sync"]["updated_members"], 1)
+        self.assertIn("badge_member_sync", body)
         self.assertIsNotNone(body.get("last_merge"))
 
-        member = Member.objects.get(campaign=campaign, first_name="John", name="Doe")
+        member = _find_member(campaign, first_name="John", name="Doe")
+        self.assertIsNotNone(member)
         ffck_row.refresh_from_db()
         member.refresh_from_db()
         campaign.refresh_from_db()
@@ -453,7 +760,7 @@ class CampaignSyncMembersViewTests(TestCase):
         self.assertIsNotNone(campaign.last_merge)
 
 
-class CampaignMemberDedupViewsTests(TestCase):
+class CampaignMemberDedupViewsTests(AuthenticatedApiTestCase):
     def test_member_duplicate_suggestions_endpoint_detects_similar_names(self):
         campaign = Campaign.objects.create(
             title="Campagne dedup",
@@ -692,7 +999,7 @@ class CampaignMemberDedupViewsTests(TestCase):
         self.assertTrue(keep_member.manual_review)
 
 
-class CampaignMembersViewManualReviewTests(TestCase):
+class CampaignMembersViewManualReviewTests(AuthenticatedApiTestCase):
     def test_campaign_members_returns_manual_review_with_labels(self):
         campaign = Campaign.objects.create(
             title="Campagne membres",
@@ -731,7 +1038,7 @@ class CampaignMembersViewManualReviewTests(TestCase):
         self.assertEqual(by_id[member_reviewed.id]["helloasso_form_slug"], "")
 
 
-class CampaignManualEditionViewTests(TestCase):
+class CampaignManualEditionViewTests(AuthenticatedApiTestCase):
     def test_manual_edition_updates_members_and_campaign_timestamp(self):
         campaign = Campaign.objects.create(
             title="Campagne édition",
@@ -809,7 +1116,7 @@ class CampaignManualEditionViewTests(TestCase):
         self.assertEqual(member.helloasso_form_slug, "inscription-competition")
 
 
-class CampaignMembersCreateViewTests(TestCase):
+class CampaignMembersCreateViewTests(AuthenticatedApiTestCase):
     def test_create_member_for_campaign(self):
         campaign = Campaign.objects.create(
             title="Campagne création membre",
@@ -836,13 +1143,13 @@ class CampaignMembersCreateViewTests(TestCase):
         self.assertEqual(created.get("name"), "Dupont")
         self.assertEqual(created.get("email"), "camille.dupont@example.com")
         self.assertEqual(created.get("campaign_id"), campaign.id)
-        self.assertTrue(
-            Member.objects.filter(
-                campaign=campaign,
+        self.assertIsNotNone(
+            _find_member(
+                campaign,
                 email="camille.dupont@example.com",
                 first_name="Camille",
                 name="Dupont",
-            ).exists()
+            )
         )
 
     def test_create_member_requires_email(self):
@@ -867,7 +1174,7 @@ class CampaignMembersCreateViewTests(TestCase):
         self.assertEqual(response.json().get("error"), "'email' is required.")
 
 
-class CampaignMembersBulkDeleteViewTests(TestCase):
+class CampaignMembersBulkDeleteViewTests(AuthenticatedApiTestCase):
     def test_bulk_delete_members_for_campaign(self):
         campaign = Campaign.objects.create(
             title="Campagne suppression membre",
@@ -936,7 +1243,7 @@ class CampaignMembersBulkDeleteViewTests(TestCase):
         self.assertEqual(response.json().get("error"), "'member_ids' must be an array.")
 
 
-class CampaignCreateViewTests(TestCase):
+class CampaignCreateViewTests(AuthenticatedApiTestCase):
     def test_create_campaign_with_defaults(self):
         response = self.client.post(
             "/api/campaigns/",
@@ -951,7 +1258,7 @@ class CampaignCreateViewTests(TestCase):
         self.assertEqual(campaign.get("status"), "active")
         self.assertEqual(campaign.get("helloasso_api_key"), "")
         self.assertEqual(campaign.get("helloasso_form_slug"), "")
-        self.assertTrue(Campaign.objects.filter(title="2027").exists())
+        self.assertTrue(any(item.title == "2027" for item in Campaign.objects.all()))
 
     def test_create_campaign_requires_title(self):
         response = self.client.post(
@@ -977,7 +1284,7 @@ class FederationExtranetServiceTests(TestCase):
         self.assertEqual(code, "94287082")
 
 
-class FederationExtranetExtractExcelViewTests(TestCase):
+class FederationExtranetExtractExcelViewTests(AuthenticatedApiTestCase):
     @override_settings(
         FFCK_EXTRANET_BASE_URL="https://extranet.example.test",
         FFCK_EXTRANET_LOGIN_PATH="/login",
@@ -992,9 +1299,7 @@ class FederationExtranetExtractExcelViewTests(TestCase):
         mock_service = mock_service_class.return_value
         mock_service.extract_excel.return_value = ExtranetExcelExtraction(
             filename="members.xlsx",
-            content_type=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
+            content_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             content=b"fake-xlsx-content",
             token="hidden-token",
         )
@@ -1017,7 +1322,9 @@ class FederationExtranetExtractExcelViewTests(TestCase):
         from api.services.federation_extranet_service import FederationExtranetAuthError
 
         mock_service = mock_service_class.return_value
-        mock_service.extract_excel.side_effect = FederationExtranetAuthError("Authentication failed")
+        mock_service.extract_excel.side_effect = FederationExtranetAuthError(
+            "Authentication failed"
+        )
 
         response = self.client.get("/api/federation/extract-excel/")
 
@@ -1025,7 +1332,7 @@ class FederationExtranetExtractExcelViewTests(TestCase):
         self.assertEqual(response.json().get("error"), "Authentication failed")
 
 
-class FfckLatestRowsViewTests(TestCase):
+class FfckLatestRowsViewTests(AuthenticatedApiTestCase):
     def test_returns_latest_export_rows_for_campaign(self):
         campaign = Campaign.objects.create(
             title="Campagne FFCK rows",
@@ -1124,7 +1431,7 @@ class FfckLatestRowsViewTests(TestCase):
     os.getenv("FFCK_RUN_REAL_EXTRANET_TEST", "").strip().lower() in {"1", "true", "yes"},
     "Set FFCK_RUN_REAL_EXTRANET_TEST=1 to run real FFCK extranet integration test.",
 )
-class FederationExtranetRealIntegrationTests(TestCase):
+class FederationExtranetRealIntegrationTests(AuthenticatedApiTestCase):
     def test_real_extract_excel_from_ffck_extranet(self):
         required_settings = [
             "FFCK_EXTRANET_BASE_URL",
@@ -1135,15 +1442,10 @@ class FederationExtranetRealIntegrationTests(TestCase):
             "FFCK_EXTRANET_PASSWORD",
             "FFCK_EXTRANET_TOTP_SECRET",
         ]
-        missing = [
-            key
-            for key in required_settings
-            if not str(getattr(settings, key, "")).strip()
-        ]
+        missing = [key for key in required_settings if not str(getattr(settings, key, "")).strip()]
         if missing:
             self.fail(
-                "Missing required FFCK settings for real integration test: "
-                + ", ".join(missing)
+                "Missing required FFCK settings for real integration test: " + ", ".join(missing)
             )
 
         response = self.client.get("/api/federation/extract-excel/")
@@ -1171,9 +1473,7 @@ class FederationExtranetRealIntegrationTests(TestCase):
             "Returned file does not look like an XLSX/ZIP payload.",
         )
 
-        output_dir = Path(
-            os.getenv("FFCK_REAL_TEST_OUTPUT_DIR", "/tmp/ffck-real-tests")
-        )
+        output_dir = Path(os.getenv("FFCK_REAL_TEST_OUTPUT_DIR", "/tmp/ffck-real-tests"))
         output_dir.mkdir(parents=True, exist_ok=True)
 
         disposition = response.get("Content-Disposition", "")
@@ -1216,7 +1516,7 @@ def _build_minimal_xlsx_bytes(rows):
         out = ""
         while i > 0:
             i, r = divmod(i - 1, 26)
-            out = chr(ord('A') + r) + out
+            out = chr(ord("A") + r) + out
         return out
 
     sheet_rows = []
@@ -1224,10 +1524,8 @@ def _build_minimal_xlsx_bytes(rows):
         cells = []
         for col_idx, value in enumerate(row, start=1):
             ref = f"{col_name(col_idx)}{idx}"
-            txt = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            cells.append(
-                f"<c r='{ref}' t='inlineStr'><is><t>{txt}</t></is></c>"
-            )
+            txt = str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            cells.append(f"<c r='{ref}' t='inlineStr'><is><t>{txt}</t></is></c>")
         sheet_rows.append(f"<row r='{idx}'>" + "".join(cells) + "</row>")
 
     worksheet = (
@@ -1241,12 +1539,12 @@ def _build_minimal_xlsx_bytes(rows):
     from zipfile import ZIP_DEFLATED, ZipFile
 
     buffer = BytesIO()
-    with ZipFile(buffer, mode='w', compression=ZIP_DEFLATED) as zf:
-        zf.writestr('[Content_Types].xml', content_types)
-        zf.writestr('_rels/.rels', rels)
-        zf.writestr('xl/workbook.xml', workbook)
-        zf.writestr('xl/_rels/workbook.xml.rels', workbook_rels)
-        zf.writestr('xl/worksheets/sheet1.xml', worksheet)
+    with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        zf.writestr("xl/worksheets/sheet1.xml", worksheet)
 
     return buffer.getvalue()
 

@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0003_helloasso_campaign_member_links'),
+        ("api", "0003_helloasso_campaign_member_links"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='campaign',
-            name='helloasso_form_slug',
-            field=models.CharField(blank=True, default='', max_length=255),
+            model_name="campaign",
+            name="helloasso_form_slug",
+            field=models.CharField(blank=True, default="", max_length=255),
         ),
     ]

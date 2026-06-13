@@ -4,25 +4,24 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0005_campaign_last_merge'),
+        ("api", "0005_campaign_last_merge"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='member',
-            name='autorisation_parentale',
-            field=models.URLField(blank=True, default=''),
+            model_name="member",
+            name="autorisation_parentale",
+            field=models.URLField(blank=True, default=""),
         ),
         migrations.AddField(
-            model_name='member',
-            name='certificat',
-            field=models.URLField(blank=True, default=''),
+            model_name="member",
+            name="certificat",
+            field=models.URLField(blank=True, default=""),
         ),
         migrations.AddField(
-            model_name='member',
-            name='option_ia',
+            model_name="member",
+            name="option_ia",
             field=models.BooleanField(default=False),
         ),
     ]

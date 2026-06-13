@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -21,14 +22,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-n!d^4$#jpa^$_8b+m&yp@33h(w*b@t)2@vhl5^es-ql5te^3wi'
+SECRET_KEY = "django-insecure-n!d^4$#jpa^$_8b+m&yp@33h(w*b@t)2@vhl5^es-ql5te^3wi"
+CRYPTOGRAPHY_KEY = os.getenv("CRYPTOGRAPHY_KEY", "").strip() or None
+RUNNING_TESTS = any(arg in {"test", "pytest"} for arg in sys.argv)
+API_AUTH_ENFORCED = (os.getenv("API_AUTH_ENFORCED", "1") == "1") and not RUNNING_TESTS
+API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "").strip()
+API_AUTH_TOKEN_TTL_SECONDS = int(os.getenv("API_AUTH_TOKEN_TTL_SECONDS", "3600") or "3600")
+API_AUTH_TOKEN_SALT = os.getenv("API_AUTH_TOKEN_SALT", "organization-admin-api-user-token").strip()
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DJANGO_DEBUG', '1') == '1'
+DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if host.strip()
 ]
 
@@ -36,67 +43,67 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'api',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "api",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = "backend.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'backend.wsgi.application'
+WSGI_APPLICATION = "backend.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/3.2/ref/settings/#databases
 
-DB_ENGINE = os.getenv('DB_ENGINE', '').strip()
+DB_ENGINE = os.getenv("DB_ENGINE", "").strip()
 
 if DB_ENGINE:
     DATABASES = {
-        'default': {
-            'ENGINE': DB_ENGINE,
-            'NAME': os.getenv('DB_NAME', 'organization_admin'),
-            'USER': os.getenv('DB_USER', 'organization_admin'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'organization_admin'),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+        "default": {
+            "ENGINE": DB_ENGINE,
+            "NAME": os.getenv("DB_NAME", "organization_admin"),
+            "USER": os.getenv("DB_USER", "organization_admin"),
+            "PASSWORD": os.getenv("DB_PASSWORD", "organization_admin"),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", "5432"),
         }
     }
 else:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
         }
     }
 
@@ -106,16 +113,16 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -123,9 +130,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/3.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -137,36 +144,36 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.2/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-HELLOASSO_CLIENT_ID = os.getenv('HELLOASSO_CLIENT_ID', '').strip()
-HELLOASSO_CLIENT_SECRET = os.getenv('HELLOASSO_CLIENT_SECRET', '').strip()
-HELLOASSO_ORGANIZATION_SLUG = os.getenv('HELLOASSO_ORGANIZATION_SLUG', '').strip()
-HELLOASSO_FORM_TYPE = os.getenv('HELLOASSO_FORM_TYPE', 'Membership').strip()
-HELLOASSO_CAMPAIGN_ID = os.getenv('HELLOASSO_CAMPAIGN_ID', '').strip()
+HELLOASSO_CLIENT_ID = os.getenv("HELLOASSO_CLIENT_ID", "").strip()
+HELLOASSO_CLIENT_SECRET = os.getenv("HELLOASSO_CLIENT_SECRET", "").strip()
+HELLOASSO_ORGANIZATION_SLUG = os.getenv("HELLOASSO_ORGANIZATION_SLUG", "").strip()
+HELLOASSO_FORM_TYPE = os.getenv("HELLOASSO_FORM_TYPE", "Membership").strip()
+HELLOASSO_CAMPAIGN_ID = os.getenv("HELLOASSO_CAMPAIGN_ID", "").strip()
 
-FFCK_EXTRANET_BASE_URL = os.getenv('FFCK_EXTRANET_BASE_URL', '').strip()
-FFCK_EXTRANET_LOGIN_PATH = os.getenv('FFCK_EXTRANET_LOGIN_PATH', '').strip()
-FFCK_EXTRANET_TOTP_PATH = os.getenv('FFCK_EXTRANET_TOTP_PATH', '').strip()
-FFCK_EXTRANET_TOKEN_PATH = os.getenv('FFCK_EXTRANET_TOKEN_PATH', '').strip()
-FFCK_EXTRANET_EXPORT_PATH = os.getenv('FFCK_EXTRANET_EXPORT_PATH', '').strip()
-FFCK_EXTRANET_USERNAME = os.getenv('FFCK_EXTRANET_USERNAME', '').strip()
-FFCK_EXTRANET_PASSWORD = os.getenv('FFCK_EXTRANET_PASSWORD', '').strip()
-FFCK_EXTRANET_TOTP_SECRET = os.getenv('FFCK_EXTRANET_TOTP_SECRET', '').strip()
-FFCK_EXTRANET_TOKEN_FIELD = os.getenv('FFCK_EXTRANET_TOKEN_FIELD', 'access_token').strip()
-FFCK_EXTRANET_TOKEN_COOKIE_NAME = os.getenv('FFCK_EXTRANET_TOKEN_COOKIE_NAME', '').strip()
-FFCK_EXTRANET_TOKEN_TYPE = os.getenv('FFCK_EXTRANET_TOKEN_TYPE', 'Bearer').strip()
-FFCK_EXTRANET_USERNAME_FIELD = os.getenv('FFCK_EXTRANET_USERNAME_FIELD', 'username').strip()
-FFCK_EXTRANET_PASSWORD_FIELD = os.getenv('FFCK_EXTRANET_PASSWORD_FIELD', 'password').strip()
-FFCK_EXTRANET_TOTP_FIELD = os.getenv('FFCK_EXTRANET_TOTP_FIELD', 'code').strip()
-FFCK_EXTRANET_LOGIN_EXTRA_PAYLOAD = os.getenv('FFCK_EXTRANET_LOGIN_EXTRA_PAYLOAD', '').strip()
-FFCK_EXTRANET_TOTP_EXTRA_PAYLOAD = os.getenv('FFCK_EXTRANET_TOTP_EXTRA_PAYLOAD', '').strip()
-FFCK_EXTRANET_EXPORT_METHOD = os.getenv('FFCK_EXTRANET_EXPORT_METHOD', 'POST').strip()
-FFCK_EXTRANET_EXPORT_FORM_PATH = os.getenv('FFCK_EXTRANET_EXPORT_FORM_PATH', '').strip()
-FFCK_EXTRANET_EXPORT_EXTRA_PAYLOAD = os.getenv('FFCK_EXTRANET_EXPORT_EXTRA_PAYLOAD', '').strip()
-FFCK_EXTRANET_STRUCTURE_SELECT_PATH = os.getenv('FFCK_EXTRANET_STRUCTURE_SELECT_PATH', '').strip()
+FFCK_EXTRANET_BASE_URL = os.getenv("FFCK_EXTRANET_BASE_URL", "").strip()
+FFCK_EXTRANET_LOGIN_PATH = os.getenv("FFCK_EXTRANET_LOGIN_PATH", "").strip()
+FFCK_EXTRANET_TOTP_PATH = os.getenv("FFCK_EXTRANET_TOTP_PATH", "").strip()
+FFCK_EXTRANET_TOKEN_PATH = os.getenv("FFCK_EXTRANET_TOKEN_PATH", "").strip()
+FFCK_EXTRANET_EXPORT_PATH = os.getenv("FFCK_EXTRANET_EXPORT_PATH", "").strip()
+FFCK_EXTRANET_USERNAME = os.getenv("FFCK_EXTRANET_USERNAME", "").strip()
+FFCK_EXTRANET_PASSWORD = os.getenv("FFCK_EXTRANET_PASSWORD", "").strip()
+FFCK_EXTRANET_TOTP_SECRET = os.getenv("FFCK_EXTRANET_TOTP_SECRET", "").strip()
+FFCK_EXTRANET_TOKEN_FIELD = os.getenv("FFCK_EXTRANET_TOKEN_FIELD", "access_token").strip()
+FFCK_EXTRANET_TOKEN_COOKIE_NAME = os.getenv("FFCK_EXTRANET_TOKEN_COOKIE_NAME", "").strip()
+FFCK_EXTRANET_TOKEN_TYPE = os.getenv("FFCK_EXTRANET_TOKEN_TYPE", "Bearer").strip()
+FFCK_EXTRANET_USERNAME_FIELD = os.getenv("FFCK_EXTRANET_USERNAME_FIELD", "username").strip()
+FFCK_EXTRANET_PASSWORD_FIELD = os.getenv("FFCK_EXTRANET_PASSWORD_FIELD", "password").strip()
+FFCK_EXTRANET_TOTP_FIELD = os.getenv("FFCK_EXTRANET_TOTP_FIELD", "code").strip()
+FFCK_EXTRANET_LOGIN_EXTRA_PAYLOAD = os.getenv("FFCK_EXTRANET_LOGIN_EXTRA_PAYLOAD", "").strip()
+FFCK_EXTRANET_TOTP_EXTRA_PAYLOAD = os.getenv("FFCK_EXTRANET_TOTP_EXTRA_PAYLOAD", "").strip()
+FFCK_EXTRANET_EXPORT_METHOD = os.getenv("FFCK_EXTRANET_EXPORT_METHOD", "POST").strip()
+FFCK_EXTRANET_EXPORT_FORM_PATH = os.getenv("FFCK_EXTRANET_EXPORT_FORM_PATH", "").strip()
+FFCK_EXTRANET_EXPORT_EXTRA_PAYLOAD = os.getenv("FFCK_EXTRANET_EXPORT_EXTRA_PAYLOAD", "").strip()
+FFCK_EXTRANET_STRUCTURE_SELECT_PATH = os.getenv("FFCK_EXTRANET_STRUCTURE_SELECT_PATH", "").strip()

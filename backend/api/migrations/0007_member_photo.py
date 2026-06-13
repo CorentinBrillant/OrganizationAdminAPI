@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0006_auto_20260612_1738'),
+        ("api", "0006_auto_20260612_1738"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='member',
-            name='photo',
-            field=models.URLField(blank=True, default=''),
+            model_name="member",
+            name="photo",
+            field=models.URLField(blank=True, default=""),
         ),
     ]

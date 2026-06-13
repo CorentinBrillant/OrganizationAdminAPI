@@ -88,7 +88,9 @@ class FederationExtranetService:
             )
 
         self._cookie_jar = CookieJar()
-        self._opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self._cookie_jar))
+        self._opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self._cookie_jar)
+        )
 
     @staticmethod
     def generate_totp(
@@ -114,7 +116,7 @@ class FederationExtranetService:
         digest = hmac.new(key, msg, hashlib.sha1).digest()
         offset = digest[-1] & 0x0F
         binary = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
-        code = binary % (10 ** digits)
+        code = binary % (10**digits)
         return str(code).zfill(digits)
 
     def extract_excel(self) -> ExtranetExcelExtraction:
@@ -171,13 +173,17 @@ class FederationExtranetService:
                 f"Unsupported FFCK_EXTRANET_EXPORT_METHOD '{export_method}'. Use GET or POST."
             )
 
-        filename = _extract_filename(payload.headers.get("Content-Disposition", "")) or "export.xlsx"
+        filename = (
+            _extract_filename(payload.headers.get("Content-Disposition", "")) or "export.xlsx"
+        )
         content_type = payload.headers.get(
             "Content-Type",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         if not payload.body:
-            raise FederationExtranetExportError("The federation extranet returned an empty export file.")
+            raise FederationExtranetExportError(
+                "The federation extranet returned an empty export file."
+            )
 
         return ExtranetExcelExtraction(
             filename=filename,
@@ -236,7 +242,9 @@ class FederationExtranetService:
             try:
                 data = json.loads(payload.body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise FederationExtranetAuthError("Token endpoint did not return valid JSON.") from exc
+                raise FederationExtranetAuthError(
+                    "Token endpoint did not return valid JSON."
+                ) from exc
 
             token = _extract_string(data, self.token_field)
             if token:
@@ -281,7 +289,9 @@ class FederationExtranetService:
 
         encoded_data = None
         if data is not None and raw_body is not None:
-            raise FederationExtranetConfigError("Cannot send both form data and raw body in the same request.")
+            raise FederationExtranetConfigError(
+                "Cannot send both form data and raw body in the same request."
+            )
         if data is not None:
             encoded_data = urllib.parse.urlencode(data).encode("utf-8")
             request_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
@@ -307,7 +317,9 @@ class FederationExtranetService:
                 f"Federation extranet HTTP {exc.code}: {body[:500]}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise FederationExtranetAuthError(f"Federation extranet network error: {exc.reason}") from exc
+            raise FederationExtranetAuthError(
+                f"Federation extranet network error: {exc.reason}"
+            ) from exc
 
     def _as_url(self, path_or_url: str) -> str:
         candidate = str(path_or_url or "").strip()
@@ -430,9 +442,7 @@ def _encode_multipart_formdata(fields: dict[str, str]) -> tuple[bytes, str]:
         key = str(name)
         val = "" if value is None else str(value)
         chunks.append(f"--{boundary}\r\n".encode("utf-8"))
-        chunks.append(
-            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8")
-        )
+        chunks.append(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
         chunks.append(val.encode("utf-8"))
         chunks.append(b"\r\n")
 

@@ -4,22 +4,21 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0010_auto_20260612_2135'),
+        ("api", "0010_auto_20260612_2135"),
     ]
 
     operations = [
         migrations.RemoveIndex(
-            model_name='ffckexportrow',
-            name='api_ffckexp_ffck_ex_7e1df9_idx',
+            model_name="ffckexportrow",
+            name="api_ffckexp_ffck_ex_7e1df9_idx",
         ),
         migrations.RemoveField(
-            model_name='ffckexportrow',
-            name='autorisation_parentale',
+            model_name="ffckexportrow",
+            name="autorisation_parentale",
         ),
         migrations.RemoveField(
-            model_name='ffckexportrow',
-            name='statut',
+            model_name="ffckexportrow",
+            name="statut",
         ),
     ]

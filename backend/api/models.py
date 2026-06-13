@@ -1,12 +1,15 @@
+import hashlib
+
 from django.db import models
+from django_cryptography.fields import encrypt
 
 
 class Campaign(models.Model):
-    title = models.CharField(max_length=255)
-    status = models.CharField(max_length=100)
+    title = encrypt(models.CharField(max_length=255))
+    status = encrypt(models.CharField(max_length=100))
     created_at = models.DateTimeField(auto_now_add=True)
-    helloasso_api_key = models.CharField(max_length=255)
-    helloasso_form_slug = models.CharField(max_length=255, blank=True, default="")
+    helloasso_api_key = encrypt(models.CharField(max_length=255))
+    helloasso_form_slug = encrypt(models.CharField(max_length=255, blank=True, default=""))
     last_merge = models.DateTimeField(null=True, blank=True)
     last_manual_edition = models.DateTimeField(null=True, blank=True)
 
@@ -15,19 +18,21 @@ class Campaign(models.Model):
 
 
 class Member(models.Model):
-    first_name = models.CharField(max_length=150)
-    name = models.CharField(max_length=150)
-    ffck_licence = models.CharField(max_length=100)
-    ffck_certificat = models.CharField(max_length=255, blank=True, default="")
-    ffck_certificat_expiration = models.CharField(max_length=100, blank=True, default="")
-    ffck_licence_type = models.CharField(max_length=150, blank=True, default="")
-    helloasso_form_slug = models.CharField(max_length=255, blank=True, default="")
-    email = models.EmailField()
-    certificat = models.URLField(blank=True, default="")
-    autorisation_parentale = models.URLField(blank=True, default="")
-    photo = models.URLField(blank=True, default="")
+    first_name = encrypt(models.CharField(max_length=150))
+    name = encrypt(models.CharField(max_length=150))
+    ffck_licence = encrypt(models.CharField(max_length=100))
+    ffck_certificat = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    ffck_certificat_expiration = encrypt(models.CharField(max_length=100, blank=True, default=""))
+    ffck_licence_type = encrypt(models.CharField(max_length=150, blank=True, default=""))
+    helloasso_form_slug = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    email = encrypt(models.EmailField())
+    certificat = encrypt(models.URLField(blank=True, default=""))
+    autorisation_parentale = encrypt(models.URLField(blank=True, default=""))
+    photo = encrypt(models.URLField(blank=True, default=""))
     option_ia = models.BooleanField(default=False)
     manual_review = models.BooleanField(default=False)
+    badge_owned = encrypt(models.BooleanField(default=False))
+    badge_ordered = encrypt(models.BooleanField(default=False))
     created_at = models.DateTimeField(auto_now_add=True)
     campaign = models.ForeignKey(
         Campaign,
@@ -72,7 +77,7 @@ class MemberDuplicateSuggestion(models.Model):
         related_name="recommended_duplicate_merges",
     )
     similarity_score = models.FloatField(default=0.0)
-    reasons = models.JSONField(default=list, blank=True)
+    reasons = encrypt(models.JSONField(default=list, blank=True))
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
@@ -97,28 +102,29 @@ class HelloAssoImport(models.Model):
         on_delete=models.PROTECT,
         related_name="helloasso_imports",
     )
-    source = models.CharField(max_length=50, default="form_items")
-    organization_slug = models.CharField(max_length=255)
-    form_type = models.CharField(max_length=50)
-    form_slug = models.CharField(max_length=255)
+    source = encrypt(models.CharField(max_length=50, default="form_items"))
+    organization_slug = encrypt(models.CharField(max_length=255))
+    form_type = encrypt(models.CharField(max_length=50))
+    form_slug = encrypt(models.CharField(max_length=255))
     with_details = models.BooleanField(default=True)
     items_count = models.PositiveIntegerField(default=0)
     fetched_at = models.DateTimeField(auto_now_add=True)
-    payload = models.JSONField()
+    payload = encrypt(models.JSONField())
 
     class Meta:
         ordering = ("-fetched_at",)
 
 
 class HelloAssoItem(models.Model):
-    helloasso_id = models.CharField(max_length=120)
-    organization_slug = models.CharField(max_length=255)
-    form_type = models.CharField(max_length=50)
-    form_slug = models.CharField(max_length=255)
-    status = models.CharField(max_length=100, blank=True)
-    payer_email = models.EmailField(blank=True)
-    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    paid_at = models.DateTimeField(null=True, blank=True)
+    helloasso_lookup_key = models.CharField(max_length=64, blank=True, default="")
+    helloasso_id = encrypt(models.CharField(max_length=120))
+    organization_slug = encrypt(models.CharField(max_length=255))
+    form_type = encrypt(models.CharField(max_length=50))
+    form_slug = encrypt(models.CharField(max_length=255))
+    status = encrypt(models.CharField(max_length=100, blank=True))
+    payer_email = encrypt(models.EmailField(blank=True))
+    amount = encrypt(models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True))
+    paid_at = encrypt(models.DateTimeField(null=True, blank=True))
     member = models.ForeignKey(
         Member,
         on_delete=models.SET_NULL,
@@ -134,21 +140,28 @@ class HelloAssoItem(models.Model):
         blank=True,
         related_name="normalized_items",
     )
-    raw_item = models.JSONField()
+    raw_item = encrypt(models.JSONField())
 
     class Meta:
         ordering = ("-last_synced_at",)
         constraints = [
             models.UniqueConstraint(
-                fields=("helloasso_id", "organization_slug", "form_type", "form_slug"),
-                name="uniq_helloasso_item_per_form",
+                fields=("helloasso_lookup_key",),
+                name="uniq_helloasso_item_lookup_key",
             ),
         ]
-        indexes = [
-            models.Index(fields=("organization_slug", "form_type", "form_slug")),
-            models.Index(fields=("payer_email",)),
-            models.Index(fields=("status",)),
-        ]
+
+    def save(self, *args, **kwargs):
+        payload = "|".join(
+            [
+                str(self.helloasso_id or "").strip(),
+                str(self.organization_slug or "").strip(),
+                str(self.form_type or "").strip(),
+                str(self.form_slug or "").strip(),
+            ]
+        )
+        self.helloasso_lookup_key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return super().save(*args, **kwargs)
 
 
 class FfckExport(models.Model):
@@ -157,18 +170,18 @@ class FfckExport(models.Model):
         on_delete=models.PROTECT,
         related_name="ffck_exports",
     )
-    source = models.CharField(max_length=50, default="licences_excel")
+    source = encrypt(models.CharField(max_length=50, default="licences_excel"))
     structure_id = models.PositiveIntegerField(null=True, blank=True)
-    structure_select_path = models.CharField(max_length=255, blank=True, default="")
-    export_path = models.CharField(max_length=255)
-    export_method = models.CharField(max_length=10, default="POST")
-    export_payload = models.JSONField(default=dict, blank=True)
+    structure_select_path = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    export_path = encrypt(models.CharField(max_length=255))
+    export_method = encrypt(models.CharField(max_length=10, default="POST"))
+    export_payload = encrypt(models.JSONField(default=dict, blank=True))
     rows_count = models.PositiveIntegerField(default=0)
-    filename = models.CharField(max_length=255, blank=True, default="")
-    content_type = models.CharField(max_length=255, blank=True, default="")
+    filename = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    content_type = encrypt(models.CharField(max_length=255, blank=True, default=""))
     file_size = models.PositiveIntegerField(default=0)
-    file_sha256 = models.CharField(max_length=64, blank=True, default="")
-    file_blob = models.BinaryField(null=True, blank=True)
+    file_sha256 = encrypt(models.CharField(max_length=64, blank=True, default=""))
+    file_blob = encrypt(models.BinaryField(null=True, blank=True))
     fetched_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -186,10 +199,10 @@ class FfckExportRow(models.Model):
         related_name="rows",
     )
     row_index = models.PositiveIntegerField()
-    licence = models.CharField(max_length=100, blank=True, default="")
-    nom = models.CharField(max_length=255, blank=True, default="")
-    categorie = models.CharField(max_length=120, blank=True, default="")
-    certificat = models.CharField(max_length=500, blank=True, default="")
+    licence = encrypt(models.CharField(max_length=100, blank=True, default=""))
+    nom = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    categorie = encrypt(models.CharField(max_length=120, blank=True, default=""))
+    certificat = encrypt(models.CharField(max_length=500, blank=True, default=""))
     member = models.ForeignKey(
         Member,
         on_delete=models.SET_NULL,
@@ -197,7 +210,7 @@ class FfckExportRow(models.Model):
         blank=True,
         related_name="ffck_export_rows",
     )
-    raw_row = models.JSONField(default=dict, blank=True)
+    raw_row = encrypt(models.JSONField(default=dict, blank=True))
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -208,7 +221,67 @@ class FfckExportRow(models.Model):
                 name="uniq_ffck_export_row_index",
             )
         ]
+
+
+class BadgeImport(models.Model):
+    id = models.AutoField(primary_key=True, serialize=False)
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.PROTECT,
+        related_name="badge_imports",
+    )
+    source = encrypt(models.CharField(max_length=50, default="badge_excel"))
+    rows_count = models.PositiveIntegerField(default=0)
+    filename = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    content_type = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    file_size = models.PositiveIntegerField(default=0)
+    file_sha256 = encrypt(models.CharField(max_length=64, blank=True, default=""))
+    file_blob = encrypt(models.BinaryField(null=True, blank=True))
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-fetched_at",)
         indexes = [
-            models.Index(fields=("licence",)),
-            models.Index(fields=("nom",)),
+            models.Index(fields=("campaign", "-fetched_at"), name="api_badgeim_campaig_41dc19_idx"),
         ]
+
+
+class BadgeImportRow(models.Model):
+    id = models.AutoField(primary_key=True, serialize=False)
+    badge_import = models.ForeignKey(
+        BadgeImport,
+        on_delete=models.CASCADE,
+        related_name="rows",
+    )
+    row_index = models.PositiveIntegerField()
+    licence = encrypt(models.CharField(max_length=100, blank=True, default=""))
+    first_name = encrypt(models.CharField(max_length=150, blank=True, default=""))
+    name = encrypt(models.CharField(max_length=150, blank=True, default=""))
+    badge_owned = encrypt(models.BooleanField(default=False))
+    badge_ordered = encrypt(models.BooleanField(default=False))
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="badge_import_rows",
+    )
+    raw_row = encrypt(models.JSONField(default=dict, blank=True))
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("row_index", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("badge_import", "row_index"),
+                name="uniq_badge_import_row_index",
+            )
+        ]
+
+
+class AuthRevokedToken(models.Model):
+    token_hash = models.CharField(max_length=64, unique=True)
+    revoked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-revoked_at",)

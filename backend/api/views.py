@@ -3,14 +3,18 @@ import json
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .models import (
+    BadgeImport,
+    BadgeImportRow,
     Campaign,
     FfckExport,
     FfckExportRow,
@@ -31,8 +35,18 @@ from .services.federation_extranet_service import (
     FederationExtranetService,
 )
 from .services.ffck_export_import_service import FfckExportImportError, FfckExportImportService
+from .services.badge_import_service import (
+    BadgeExcelExtraction,
+    BadgeImportError,
+    BadgeImportService,
+)
 from .services.member_dedup_service import MemberDedupService
-from .services.member_sync_service import FfckMemberSyncService, HelloAssoMemberSyncService
+from .services.member_sync_service import (
+    BadgeMemberSyncService,
+    FfckMemberSyncService,
+    HelloAssoMemberSyncService,
+)
+from .auth import create_user_token, require_api_token, revoke_token
 
 
 def _nested_get(obj, *keys):
@@ -47,8 +61,26 @@ def _nested_get(obj, *keys):
 
 
 def _extract_items(payload):
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
     data = payload.get("data") if isinstance(payload, dict) else None
     return data if isinstance(data, list) else []
+
+
+def _coerce_dict(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
 
 
 def _extract_helloasso_id(item):
@@ -68,6 +100,20 @@ def _extract_helloasso_id(item):
         json.dumps(item, sort_keys=True, ensure_ascii=True, default=str).encode("utf-8")
     ).hexdigest()
     return f"hash:{fingerprint}"
+
+
+def _helloasso_lookup_key(
+    helloasso_id: str, organization_slug: str, form_type: str, form_slug: str
+) -> str:
+    payload = "|".join(
+        [
+            str(helloasso_id or "").strip(),
+            str(organization_slug or "").strip(),
+            str(form_type or "").strip(),
+            str(form_slug or "").strip(),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _extract_email(item):
@@ -145,11 +191,7 @@ def _resolve_campaign(request):
 
     if not raw_campaign_id:
         return None, JsonResponse(
-            {
-                "error": (
-                    "campaignId is required (query param or HELLOASSO_CAMPAIGN_ID setting)."
-                )
-            },
+            {"error": ("campaignId is required (query param or HELLOASSO_CAMPAIGN_ID setting).")},
             status=400,
         )
 
@@ -163,6 +205,75 @@ def _resolve_campaign(request):
         return None, JsonResponse({"error": f"Campaign {campaign_id} not found."}, status=404)
 
     return campaign, None
+
+
+@csrf_exempt
+@require_POST
+def auth_login(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    username = str(payload.get("username", "")).strip()
+    password = str(payload.get("password", "")).strip()
+    if not username or not password:
+        return JsonResponse({"error": "'username' and 'password' are required."}, status=400)
+
+    user = authenticate(request, username=username, password=password)
+    if user is None or not getattr(user, "is_active", False):
+        return JsonResponse({"error": "Invalid credentials."}, status=401)
+
+    token = create_user_token(user)
+    ttl = int(getattr(settings, "API_AUTH_TOKEN_TTL_SECONDS", 3600))
+
+    return JsonResponse(
+        {
+            "token": token,
+            "token_type": "Bearer",
+            "expires_in": ttl,
+            "user": {
+                "id": user.id,
+                "username": user.get_username(),
+            },
+        }
+    )
+
+
+@require_GET
+def auth_session(request):
+    user = getattr(request, "auth_user", None)
+    return JsonResponse(
+        {
+            "authenticated": True,
+            "auth_via": getattr(request, "auth_via", "unknown"),
+            "user": (
+                {
+                    "id": user.id,
+                    "username": user.get_username(),
+                }
+                if user is not None
+                else None
+            ),
+        }
+    )
+
+
+@require_POST
+@require_api_token
+def auth_logout(request):
+    if getattr(request, "auth_via", "") == "static_token":
+        return JsonResponse({"error": "Static token cannot be revoked."}, status=400)
+
+    token = str(getattr(request, "auth_token", "")).strip()
+    revoke_token(token)
+    response = JsonResponse({"logged_out": True})
+    response.delete_cookie("api_token", path="/")
+    return response
+
 
 @require_http_methods(["GET", "POST"])
 def campaigns(request):
@@ -246,7 +357,9 @@ def campaign_members(request, campaign_id):
         if not isinstance(payload, dict):
             return JsonResponse({"error": "Invalid JSON payload."}, status=400)
 
-        member_payload = payload.get("member") if isinstance(payload.get("member"), dict) else payload
+        member_payload = (
+            payload.get("member") if isinstance(payload.get("member"), dict) else payload
+        )
 
         first_name = _coerce_text(member_payload.get("first_name"))
         name = _coerce_text(member_payload.get("name"))
@@ -261,6 +374,8 @@ def campaign_members(request, campaign_id):
         photo = _coerce_text(member_payload.get("photo"))
         option_ia = _coerce_bool(member_payload.get("option_ia"))
         manual_review = _coerce_bool(member_payload.get("manual_review"))
+        badge_owned = _coerce_bool(member_payload.get("badge_owned"))
+        badge_ordered = _coerce_bool(member_payload.get("badge_ordered"))
 
         if not first_name:
             return JsonResponse({"error": "'first_name' is required."}, status=400)
@@ -284,6 +399,8 @@ def campaign_members(request, campaign_id):
             photo=photo,
             option_ia=option_ia,
             manual_review=manual_review,
+            badge_owned=badge_owned,
+            badge_ordered=badge_ordered,
         )
 
         return JsonResponse(
@@ -306,6 +423,8 @@ def campaign_members(request, campaign_id):
                     "option_ia": member.option_ia,
                     "manual_review": member.manual_review,
                     "manual_review_label": "vérifié" if member.manual_review else "non vérifié",
+                    "badge_owned": member.badge_owned,
+                    "badge_ordered": member.badge_ordered,
                 }
             },
             status=201,
@@ -332,6 +451,8 @@ def campaign_members(request, campaign_id):
             "option_ia": member.option_ia,
             "manual_review": member.manual_review,
             "manual_review_label": "vérifié" if member.manual_review else "non vérifié",
+            "badge_owned": member.badge_owned,
+            "badge_ordered": member.badge_ordered,
         }
         for member in members
     ]
@@ -543,6 +664,16 @@ def campaign_manual_edition(request, campaign_id):
                 if member.manual_review != next_value:
                     member.manual_review = next_value
                     update_fields.append("manual_review")
+            if "badge_owned" in item:
+                next_value = _coerce_bool(item.get("badge_owned"))
+                if member.badge_owned != next_value:
+                    member.badge_owned = next_value
+                    update_fields.append("badge_owned")
+            if "badge_ordered" in item:
+                next_value = _coerce_bool(item.get("badge_ordered"))
+                if member.badge_ordered != next_value:
+                    member.badge_ordered = next_value
+                    update_fields.append("badge_ordered")
 
             if update_fields:
                 member.save(update_fields=update_fields)
@@ -599,7 +730,9 @@ def campaign_member_duplicate_suggestions(request):
             "campaign_id": campaign.id,
             "min_score": min_score,
             "generation": generation_summary,
-            "suggestions": [_serialize_duplicate_suggestion(suggestion) for suggestion in suggestions_qs],
+            "suggestions": [
+                _serialize_duplicate_suggestion(suggestion) for suggestion in suggestions_qs
+            ],
         }
     )
 
@@ -667,7 +800,9 @@ def helloasso_latest_items(request):
     if error_response is not None:
         return error_response
 
-    latest_import = HelloAssoImport.objects.filter(campaign=campaign).order_by("-fetched_at").first()
+    latest_import = (
+        HelloAssoImport.objects.filter(campaign=campaign).order_by("-fetched_at").first()
+    )
     if latest_import is None:
         return JsonResponse(
             {
@@ -711,7 +846,6 @@ def helloasso_sync_campaign_members(request):
             "last_merge": campaign.last_merge.isoformat() if campaign.last_merge else None,
         }
     )
-
 
 
 @require_GET
@@ -767,14 +901,22 @@ def helloasso_import_campaign(request):
                 if not isinstance(item, dict):
                     continue
 
-                payer_email = _extract_email(item)
-
-                HelloAssoItem.objects.update_or_create(
-                    helloasso_id=_extract_helloasso_id(item),
+                helloasso_id = _extract_helloasso_id(item)
+                lookup_key = _helloasso_lookup_key(
+                    helloasso_id=helloasso_id,
                     organization_slug=organization_slug,
                     form_type=form_type,
                     form_slug=form_slug,
+                )
+                payer_email = _extract_email(item)
+
+                HelloAssoItem.objects.update_or_create(
+                    helloasso_lookup_key=lookup_key,
                     defaults={
+                        "helloasso_id": helloasso_id,
+                        "organization_slug": organization_slug,
+                        "form_type": form_type,
+                        "form_slug": form_slug,
                         "status": _extract_status(item),
                         "payer_email": payer_email,
                         "amount": _extract_amount(item),
@@ -820,7 +962,9 @@ def ffck_latest_rows(request):
     if campaign is None:
         return JsonResponse({"error": f"Campaign {campaign_id} not found."}, status=404)
 
-    latest_export = FfckExport.objects.filter(campaign=campaign).order_by("-fetched_at", "-id").first()
+    latest_export = (
+        FfckExport.objects.filter(campaign=campaign).order_by("-fetched_at", "-id").first()
+    )
     if latest_export is None:
         return JsonResponse(
             {
@@ -839,7 +983,7 @@ def ffck_latest_rows(request):
             "categorie": row.categorie,
             "certificat": row.certificat,
             "member_id": row.member_id,
-            "raw_row": row.raw_row,
+            "raw_row": _coerce_dict(row.raw_row),
         }
         for row in FfckExportRow.objects.filter(ffck_export=latest_export)
         .select_related("member")
@@ -859,6 +1003,115 @@ def ffck_latest_rows(request):
                 "content_type": latest_export.content_type,
                 "file_size": latest_export.file_size,
             },
+        }
+    )
+
+
+@require_GET
+def badge_latest_rows(request):
+    campaign, error_response = _resolve_campaign(request)
+    if error_response is not None:
+        return error_response
+
+    latest_import = (
+        BadgeImport.objects.filter(campaign=campaign).order_by("-fetched_at", "-id").first()
+    )
+    if latest_import is None:
+        return JsonResponse(
+            {
+                "campaign_id": campaign.id,
+                "rows": [],
+                "import": None,
+            }
+        )
+
+    rows = [
+        {
+            "id": row.id,
+            "row_index": row.row_index,
+            "licence": row.licence,
+            "first_name": row.first_name,
+            "name": row.name,
+            "badge_owned": row.badge_owned,
+            "badge_ordered": row.badge_ordered,
+            "member_id": row.member_id,
+            "raw_row": _coerce_dict(row.raw_row),
+        }
+        for row in BadgeImportRow.objects.filter(badge_import=latest_import)
+        .select_related("member")
+        .order_by("row_index", "id")
+    ]
+
+    return JsonResponse(
+        {
+            "campaign_id": campaign.id,
+            "rows": rows,
+            "import": {
+                "id": latest_import.id,
+                "fetched_at": latest_import.fetched_at.isoformat(),
+                "rows_count": latest_import.rows_count,
+                "filename": latest_import.filename,
+                "content_type": latest_import.content_type,
+                "file_size": latest_import.file_size,
+            },
+        }
+    )
+
+
+@require_POST
+def badge_import_campaign(request):
+    campaign, error_response = _resolve_campaign(request)
+    if error_response is not None:
+        return error_response
+
+    upload = request.FILES.get("file")
+    if upload is None:
+        return JsonResponse({"error": "'file' is required as multipart upload."}, status=400)
+
+    raw_content = upload.read()
+    if not raw_content:
+        return JsonResponse({"error": "Uploaded file is empty."}, status=400)
+
+    extraction = BadgeExcelExtraction(
+        filename=getattr(upload, "name", "badges.xlsx"),
+        content_type=getattr(
+            upload,
+            "content_type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+        content=raw_content,
+    )
+
+    try:
+        import_summary = BadgeImportService(campaign=campaign).import_extraction(extraction)
+        sync_summary = BadgeMemberSyncService(campaign=campaign).sync_latest_import()
+        _mark_campaign_last_merge(campaign)
+        return JsonResponse(
+            {
+                "campaign_id": campaign.id,
+                "import": import_summary,
+                "member_sync": sync_summary,
+                "last_merge": campaign.last_merge.isoformat() if campaign.last_merge else None,
+            }
+        )
+    except BadgeImportError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+
+@require_GET
+def badge_sync_campaign_members(request):
+    campaign, error_response = _resolve_campaign(request)
+    if error_response is not None:
+        return error_response
+
+    sync_summary = BadgeMemberSyncService(campaign=campaign).sync_latest_import()
+    _mark_campaign_last_merge(campaign)
+
+    return JsonResponse(
+        {
+            "campaign_id": campaign.id,
+            "member_sync": sync_summary,
+            "last_merge": campaign.last_merge.isoformat() if campaign.last_merge else None,
         }
     )
 
@@ -889,6 +1142,7 @@ def sync_campaign_members(request):
 
     helloasso_sync_summary = HelloAssoMemberSyncService(campaign=campaign).sync_latest_import()
     ffck_sync_summary = FfckMemberSyncService(campaign=campaign).sync_latest_export()
+    badge_sync_summary = BadgeMemberSyncService(campaign=campaign).sync_latest_import()
     _mark_campaign_last_merge(campaign)
 
     return JsonResponse(
@@ -896,6 +1150,7 @@ def sync_campaign_members(request):
             "campaign_id": campaign.id,
             "helloasso_member_sync": helloasso_sync_summary,
             "ffck_member_sync": ffck_sync_summary,
+            "badge_member_sync": badge_sync_summary,
             "last_merge": campaign.last_merge.isoformat() if campaign.last_merge else None,
         }
     )

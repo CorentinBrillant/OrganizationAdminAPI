@@ -5,40 +5,90 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0011_auto_20260612_2139'),
+        ("api", "0011_auto_20260612_2139"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='MemberDuplicateSuggestion',
+            name="MemberDuplicateSuggestion",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('similarity_score', models.FloatField(default=0.0)),
-                ('reasons', models.JSONField(blank=True, default=list)),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('accepted', 'Accepted'), ('rejected', 'Rejected')], default='pending', max_length=20)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('resolved_at', models.DateTimeField(blank=True, null=True)),
-                ('campaign', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='member_duplicate_suggestions', to='api.campaign')),
-                ('member_left', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='duplicate_suggestions_left', to='api.member')),
-                ('member_right', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='duplicate_suggestions_right', to='api.member')),
-                ('recommended_master', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='recommended_duplicate_merges', to='api.member')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("similarity_score", models.FloatField(default=0.0)),
+                ("reasons", models.JSONField(blank=True, default=list)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("accepted", "Accepted"),
+                            ("rejected", "Rejected"),
+                        ],
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("resolved_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "campaign",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="member_duplicate_suggestions",
+                        to="api.campaign",
+                    ),
+                ),
+                (
+                    "member_left",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="duplicate_suggestions_left",
+                        to="api.member",
+                    ),
+                ),
+                (
+                    "member_right",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="duplicate_suggestions_right",
+                        to="api.member",
+                    ),
+                ),
+                (
+                    "recommended_master",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="recommended_duplicate_merges",
+                        to="api.member",
+                    ),
+                ),
             ],
             options={
-                'ordering': ('-similarity_score', '-created_at'),
+                "ordering": ("-similarity_score", "-created_at"),
             },
         ),
         migrations.AddIndex(
-            model_name='memberduplicatesuggestion',
-            index=models.Index(fields=['campaign', 'status'], name='api_memberd_campaig_048987_idx'),
+            model_name="memberduplicatesuggestion",
+            index=models.Index(
+                fields=["campaign", "status"], name="api_memberd_campaig_048987_idx"
+            ),
         ),
         migrations.AddIndex(
-            model_name='memberduplicatesuggestion',
-            index=models.Index(fields=['similarity_score'], name='api_memberd_similar_853cd3_idx'),
+            model_name="memberduplicatesuggestion",
+            index=models.Index(fields=["similarity_score"], name="api_memberd_similar_853cd3_idx"),
         ),
         migrations.AddConstraint(
-            model_name='memberduplicatesuggestion',
-            constraint=models.UniqueConstraint(fields=('campaign', 'member_left', 'member_right'), name='uniq_member_duplicate_suggestion_pair'),
+            model_name="memberduplicatesuggestion",
+            constraint=models.UniqueConstraint(
+                fields=("campaign", "member_left", "member_right"),
+                name="uniq_member_duplicate_suggestion_pair",
+            ),
         ),
     ]

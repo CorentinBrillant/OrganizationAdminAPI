@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0013_auto_20260613_1002'),
+        ("api", "0013_auto_20260613_1002"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='member',
-            name='helloasso_form_slug',
-            field=models.CharField(blank=True, default='', max_length=255),
+            model_name="member",
+            name="helloasso_form_slug",
+            field=models.CharField(blank=True, default="", max_length=255),
         ),
     ]

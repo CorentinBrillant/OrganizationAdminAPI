@@ -87,9 +87,7 @@ class HelloAssoService:
         with_details: bool = True,
     ) -> dict:
         if not organization_slug or not form_type or not form_slug:
-            raise HelloAssoConfigError(
-                "organization_slug, form_type and form_slug are required."
-            )
+            raise HelloAssoConfigError("organization_slug, form_type and form_slug are required.")
 
         token = self.get_access_token()
         query = urllib.parse.urlencode(

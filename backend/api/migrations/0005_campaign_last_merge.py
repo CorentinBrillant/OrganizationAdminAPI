@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0004_campaign_helloasso_form_slug'),
+        ("api", "0004_campaign_helloasso_form_slug"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='campaign',
-            name='last_merge',
+            model_name="campaign",
+            name="last_merge",
             field=models.DateTimeField(blank=True, null=True),
         ),
     ]

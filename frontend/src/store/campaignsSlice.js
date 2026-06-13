@@ -26,6 +26,7 @@ const initialState = {
     dashboard: { search: '', status: 'all', reason: 'all' },
     helloasso: { search: '' },
     ffck: { search: '' },
+    badges: { search: '' },
     dedup: { minScore: '0.80' },
     monitoring: {},
   },

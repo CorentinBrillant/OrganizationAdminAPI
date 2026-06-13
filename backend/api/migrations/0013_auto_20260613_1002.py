@@ -4,25 +4,24 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0012_auto_20260612_2312'),
+        ("api", "0012_auto_20260612_2312"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='member',
-            name='ffck_certificat',
-            field=models.CharField(blank=True, default='', max_length=255),
+            model_name="member",
+            name="ffck_certificat",
+            field=models.CharField(blank=True, default="", max_length=255),
         ),
         migrations.AddField(
-            model_name='member',
-            name='ffck_certificat_expiration',
-            field=models.CharField(blank=True, default='', max_length=100),
+            model_name="member",
+            name="ffck_certificat_expiration",
+            field=models.CharField(blank=True, default="", max_length=100),
         ),
         migrations.AddField(
-            model_name='member',
-            name='ffck_licence_type',
-            field=models.CharField(blank=True, default='', max_length=150),
+            model_name="member",
+            name="ffck_licence_type",
+            field=models.CharField(blank=True, default="", max_length=150),
         ),
     ]

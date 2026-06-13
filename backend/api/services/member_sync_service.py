@@ -1,9 +1,19 @@
 import re
+import json
 from dataclasses import dataclass
 
 from django.db import transaction
 
-from ..models import Campaign, FfckExport, FfckExportRow, HelloAssoImport, HelloAssoItem, Member
+from ..models import (
+    BadgeImport,
+    BadgeImportRow,
+    Campaign,
+    FfckExport,
+    FfckExportRow,
+    HelloAssoImport,
+    HelloAssoItem,
+    Member,
+)
 
 URL_RE = re.compile(r"https?://[^\s)]+")
 
@@ -26,6 +36,19 @@ def _nested_get(obj, *keys):
         if current is None:
             return None
     return current
+
+
+def _coerce_dict(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
 
 
 def _extract_member_identity(raw_item: dict) -> tuple[str, str, str]:
@@ -101,9 +124,7 @@ def _extract_document_links(raw_item: dict) -> tuple[str, str, str]:
 
     for node in _iter_dict_nodes(raw_item):
         texts = [
-            value.strip()
-            for value in node.values()
-            if isinstance(value, str) and value.strip()
+            value.strip() for value in node.values() if isinstance(value, str) and value.strip()
         ]
         if not texts:
             continue
@@ -168,8 +189,8 @@ class HelloAssoMemberSyncService:
         items = HelloAssoItem.objects.filter(latest_import=latest_import).order_by("id")
 
         for helloasso_item in items:
-            raw_item = helloasso_item.raw_item
-            if not isinstance(raw_item, dict):
+            raw_item = _coerce_dict(helloasso_item.raw_item)
+            if not raw_item:
                 skipped_items += 1
                 continue
 
@@ -232,7 +253,7 @@ class HelloAssoMemberSyncService:
 
 
 def _extract_ffck_row_identity(row: FfckExportRow) -> tuple[str, str]:
-    raw_row = row.raw_row if isinstance(row.raw_row, dict) else {}
+    raw_row = _coerce_dict(row.raw_row)
     first_name = _pick_first_string(
         raw_row.get("prenom"),
         raw_row.get("prénom"),
@@ -319,7 +340,7 @@ class FfckMemberSyncService:
             linked_rows += 1
 
             licence = _pick_first_string(row.licence)
-            raw_row = row.raw_row if isinstance(row.raw_row, dict) else {}
+            raw_row = _coerce_dict(row.raw_row)
             ffck_certificat = _pick_first_string(raw_row.get("type certificat"))
             ffck_certificat_expiration = _pick_first_string(
                 raw_row.get("date de fin certificat medical"),
@@ -353,5 +374,86 @@ class FfckMemberSyncService:
             "linked_rows": linked_rows,
             "updated_members": updated_members,
             "created_members": created_members,
+            "skipped_rows": skipped_rows,
+        }
+
+
+@dataclass
+class BadgeMemberSyncService:
+    campaign: Campaign
+
+    @transaction.atomic
+    def sync_latest_import(self, badge_import: BadgeImport | None = None) -> dict:
+        latest_import = badge_import
+        if latest_import is None:
+            latest_import = (
+                BadgeImport.objects.filter(campaign=self.campaign)
+                .order_by("-fetched_at", "-id")
+                .first()
+            )
+
+        if latest_import is None:
+            return {
+                "badge_import_id": None,
+                "processed_rows": 0,
+                "linked_rows": 0,
+                "updated_members": 0,
+                "skipped_rows": 0,
+            }
+
+        members = list(Member.objects.filter(campaign=self.campaign).order_by("id"))
+        members_by_identity = {}
+
+        for member in members:
+            identity_key = _identity_key(member.first_name, member.name)
+            if identity_key and identity_key not in members_by_identity:
+                members_by_identity[identity_key] = member
+
+        # The latest import is considered authoritative for current badge state.
+        Member.objects.filter(campaign=self.campaign).update(badge_owned=False, badge_ordered=False)
+        for member in members:
+            member.badge_owned = False
+            member.badge_ordered = False
+
+        processed_rows = 0
+        linked_rows = 0
+        updated_members = 0
+        skipped_rows = 0
+        touched_member_ids = set()
+
+        rows = BadgeImportRow.objects.filter(badge_import=latest_import).order_by("row_index", "id")
+        for row in rows:
+            key = _identity_key(row.first_name, row.name)
+
+            member = None
+            if key is not None:
+                member = members_by_identity.get(key)
+
+            if member is None:
+                skipped_rows += 1
+                continue
+
+            if row.member_id != member.id:
+                row.member = member
+                row.save(update_fields=["member"])
+            linked_rows += 1
+
+            next_badge_owned = bool(member.badge_owned) or bool(row.badge_owned)
+            next_badge_ordered = bool(member.badge_ordered) or bool(row.badge_ordered)
+            if member.badge_owned != next_badge_owned or member.badge_ordered != next_badge_ordered:
+                member.badge_owned = next_badge_owned
+                member.badge_ordered = next_badge_ordered
+                member.save(update_fields=["badge_owned", "badge_ordered"])
+                if member.id not in touched_member_ids:
+                    updated_members += 1
+                    touched_member_ids.add(member.id)
+
+            processed_rows += 1
+
+        return {
+            "badge_import_id": latest_import.id,
+            "processed_rows": processed_rows,
+            "linked_rows": linked_rows,
+            "updated_members": updated_members,
             "skipped_rows": skipped_rows,
         }

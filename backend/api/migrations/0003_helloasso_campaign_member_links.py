@@ -32,7 +32,6 @@ def link_imports_to_campaign(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("api", "0002_auto_20260612_1522"),
     ]

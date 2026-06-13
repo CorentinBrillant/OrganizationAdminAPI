@@ -10,7 +10,6 @@ import {
 } from '../store/campaignsSlice'
 
 const THEME_STORE_KEY = 'ffck:theme'
-const USER_STORE_KEY = 'ffck:user'
 const API_KEY_STORE_KEY = 'ffck:source:helloasso:apiKey'
 const CAMPAIGN_STORE_KEY = 'ffck:campaign'
 
@@ -18,15 +17,7 @@ function formatCampaignLabel(value) {
   return /^\d{4}$/.test(value) ? `Campagne ${value}` : value
 }
 
-function parseJson(value) {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
-}
-
-export default function Sidebar({ activePage, onPageChange }) {
+export default function Sidebar({ activePage, onPageChange, user = null, onLogout = null }) {
   const dispatch = useDispatch()
   const campaigns = useSelector((state) => state.campaigns.items)
   const campaignCatalog = useSelector((state) => state.campaigns.catalog)
@@ -34,7 +25,6 @@ export default function Sidebar({ activePage, onPageChange }) {
   const activeCampaignId = useSelector((state) => state.campaigns.activeCampaignId)
 
   const [apiKey, setApiKey] = useState('')
-  const [user, setUser] = useState({ name: 'Utilisateur bureau directeur', role: 'Bureau directeur' })
   const [theme, setTheme] = useState('dark')
 
   useEffect(() => {
@@ -46,12 +36,6 @@ export default function Sidebar({ activePage, onPageChange }) {
     const storedTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark'
     setTheme(storedTheme === 'light' ? 'light' : 'dark')
 
-    const storedUser = parseJson(localStorage.getItem(USER_STORE_KEY) || 'null')
-    if (storedUser?.name) {
-      setUser({ name: storedUser.name, role: storedUser.role || 'Bureau directeur' })
-    } else {
-      localStorage.setItem(USER_STORE_KEY, JSON.stringify(user))
-    }
   }, [dispatch])
 
   useEffect(() => {
@@ -59,9 +43,6 @@ export default function Sidebar({ activePage, onPageChange }) {
       setApiKey(localStorage.getItem(API_KEY_STORE_KEY) || '')
       const nextTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark'
       setTheme(nextTheme === 'light' ? 'light' : 'dark')
-      const nextUser = parseJson(localStorage.getItem(USER_STORE_KEY) || 'null')
-      if (nextUser?.name) setUser({ name: nextUser.name, role: nextUser.role || 'Bureau directeur' })
-      else setUser(null)
     }
 
     window.addEventListener('storage', onStorage)
@@ -125,17 +106,8 @@ export default function Sidebar({ activePage, onPageChange }) {
     }
   }
 
-  const toggleAuth = () => {
-    if (user?.name) {
-      localStorage.removeItem(USER_STORE_KEY)
-      setUser(null)
-      return
-    }
-    const name = window.prompt('Nom utilisateur')
-    if (!name?.trim()) return
-    const nextUser = { name: name.trim(), role: 'Bureau directeur' }
-    localStorage.setItem(USER_STORE_KEY, JSON.stringify(nextUser))
-    setUser(nextUser)
+  const handleLogoutClick = () => {
+    if (typeof onLogout === 'function') onLogout()
   }
 
   return (
@@ -163,6 +135,13 @@ export default function Sidebar({ activePage, onPageChange }) {
             onClick={() => onPageChange('ffck')}
           >
             Source FFCK
+          </button>
+          <button
+            className={activePage === 'badges' ? 'active' : ''}
+            type="button"
+            onClick={() => onPageChange('badges')}
+          >
+            Source Badges
           </button>
           <button
             className={activePage === 'dedup' ? 'active' : ''}
@@ -199,11 +178,11 @@ export default function Sidebar({ activePage, onPageChange }) {
             </button>
           </div>
         </div>
-        <div className="aside-tools" aria-label="Préférences utilisateur">
+        <section className="aside-tools" aria-label="Préférences utilisateur">
           <button className="theme-toggle" type="button" onClick={toggleTheme}>
             {theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'}
           </button>
-        </div>
+        </section>
       </div>
 
       <div className="sidebar-footer">
@@ -235,8 +214,8 @@ export default function Sidebar({ activePage, onPageChange }) {
             'Aucun utilisateur connecté'
           )}
         </div>
-        <button className="btn-subtle" type="button" onClick={toggleAuth}>
-          {user?.name ? 'Se déconnecter' : 'Se connecter'}
+        <button className="btn-subtle" type="button" onClick={handleLogoutClick}>
+          Se déconnecter
         </button>
       </div>
     </aside>

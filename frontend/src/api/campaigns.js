@@ -1,5 +1,9 @@
+import { withApiAuthHeaders } from '../auth/token'
+
 export async function fetchCampaigns() {
-  const response = await fetch('/api/campaigns/')
+  const response = await fetch('/api/campaigns/', {
+    headers: withApiAuthHeaders(),
+  })
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
   }
@@ -33,7 +37,7 @@ export async function createCampaign({ title, status = 'active', helloasso_api_k
   }
 
   const csrfToken = readCookie('csrftoken')
-  const headers = { 'Content-Type': 'application/json' }
+  const headers = withApiAuthHeaders({ 'Content-Type': 'application/json' })
   if (csrfToken) headers['X-CSRFToken'] = csrfToken
 
   const response = await fetch('/api/campaigns/', {
@@ -84,6 +88,7 @@ export async function fetchCampaignMembers(campaignId, options = {}) {
   }
 
   const response = await fetch(`/api/campaigns/${campaignId}/members/`, {
+    headers: withApiAuthHeaders(),
     signal: options.signal,
   })
   if (!response.ok) {
@@ -107,6 +112,8 @@ export async function fetchCampaignMembers(campaignId, options = {}) {
     photo: String(member?.photo || '').trim(),
     option_ia: Boolean(member?.option_ia),
     manual_review: Boolean(member?.manual_review),
+    badge_owned: Boolean(member?.badge_owned),
+    badge_ordered: Boolean(member?.badge_ordered),
     campaign_id: Number(member?.campaign_id),
   }))
 }
@@ -118,6 +125,7 @@ export async function fetchCampaignFfckLatestRows(campaignId, options = {}) {
   }
 
   const response = await fetch(`/api/ffck/rows/latest/?campaignId=${encodeURIComponent(String(normalizedCampaignId))}`, {
+    headers: withApiAuthHeaders(),
     signal: options.signal,
   })
   if (!response.ok) {
@@ -154,7 +162,7 @@ export async function saveCampaignManualEdition(campaignId, members) {
   }
 
   const csrfToken = readCookie('csrftoken')
-  const headers = { 'Content-Type': 'application/json' }
+  const headers = withApiAuthHeaders({ 'Content-Type': 'application/json' })
   if (csrfToken) headers['X-CSRFToken'] = csrfToken
 
   const response = await fetch(`/api/campaigns/${normalizedCampaignId}/manual-edition/`, {

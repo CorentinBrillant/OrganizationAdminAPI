@@ -67,7 +67,7 @@ class FfckExportImportService:
 
             nom = _pick_first(row_map, ["nom complet"])
             if not nom:
-                nom_part = _pick_first(row_map, ["nom"]) 
+                nom_part = _pick_first(row_map, ["nom"])
                 prenom_part = _pick_first(row_map, ["prenom", "prénom"])
                 nom = " ".join([part for part in [nom_part, prenom_part] if part]).strip()
 
@@ -149,8 +149,8 @@ def _row_to_dict(header: list[str], cells: list[str]) -> dict:
     size = max(len(header), len(cells))
     data = {}
     for i in range(size):
-        key = header[i] if i < len(header) else f"col_{i+1}"
-        normalized = _normalize_header(key) or f"col_{i+1}"
+        key = header[i] if i < len(header) else f"col_{i + 1}"
+        normalized = _normalize_header(key) or f"col_{i + 1}"
         value = cells[i] if i < len(cells) else ""
         data[normalized] = "" if value is None else str(value).strip()
     return data
