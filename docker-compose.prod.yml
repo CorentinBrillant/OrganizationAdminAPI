@@ -63,7 +63,7 @@ services:
       - traefik.http.routers.ckcp-admin.entrypoints=websecure
       - traefik.http.routers.ckcp-admin.tls=true
       - traefik.http.routers.ckcp-admin.tls.certresolver=letsencrypt
-      - traefik.http.services.ckcp-admin.loadbalancer.server.port=8080
+      - traefik.http.services.ckcp-admin.loadbalancer.server.port=80
     volumes:
       - frontend_dist:/usr/share/nginx/html:ro
       - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
