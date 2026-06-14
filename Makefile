@@ -1,6 +1,7 @@
-COMPOSE := docker compose --env-file .env.local
+compose := docker compose --env-file .env.local -f docker-compose.local.yml
+COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.prod.yml
 
-.PHONY: build up down restart logs ps clean test-backend test-frontend format-backend lint-frontend
+.PHONY: build up down restart logs ps clean test-backend test-frontend format-backend lint-frontend precommit-install scan-secrets up-prod down-prod logs-prod ps-prod
 
 build:
 	$(COMPOSE) build
@@ -19,6 +20,18 @@ logs:
 ps:
 	$(COMPOSE) ps
 
+up-prod:
+	$(COMPOSE_PROD) up -d --build
+
+down-prod:
+	$(COMPOSE_PROD) down
+
+logs-prod:
+	$(COMPOSE_PROD) logs -f
+
+ps-prod:
+	$(COMPOSE_PROD) ps
+
 clean:
 	$(COMPOSE) down -v --remove-orphans
 
@@ -33,4 +46,10 @@ format-backend:
 	cd backend && uv run ruff format .
 
 lint-frontend:
-	cd frontend && npm run lint:frontend
+	cd frontend && if [ ! -x node_modules/.bin/biome ]; then npm ci; fi && npm run lint:frontend
+
+precommit-install:
+	uvx pre-commit install
+
+scan-secrets:
+	uvx pre-commit run gitleaks --all-files

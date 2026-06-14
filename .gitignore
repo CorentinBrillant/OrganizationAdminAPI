@@ -28,6 +28,8 @@ dist-ssr
 .env
 .env.*
 !.env.local.example
+!.env.prod
+!.env.prod.example
 # Python bytecode
 __pycache__/
 *.pyc

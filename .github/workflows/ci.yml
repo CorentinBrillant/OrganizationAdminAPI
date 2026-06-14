@@ -9,6 +9,10 @@ on:
       - reopened
       - ready_for_review
 
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+
 jobs:
   backend-format:
     name: Backend format check
@@ -21,7 +25,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
@@ -46,7 +50,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
@@ -71,7 +75,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
@@ -97,7 +101,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
@@ -106,3 +110,77 @@ jobs:
 
       - name: Run frontend tests
         run: npm run test:run
+
+  docker-smoke:
+    name: Docker smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create CI env files
+        run: |
+          cat > .env.local <<'EOF'
+          DJANGO_DEBUG=1
+          DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+          API_AUTH_ENFORCED=0
+          API_AUTH_TOKEN=
+          API_AUTH_TOKEN_TTL_SECONDS=3600
+          API_AUTH_TOKEN_SALT=organization-admin-api-user-token
+          CRYPTOGRAPHY_KEY=
+          DB_ENGINE=django.db.backends.postgresql
+          DB_NAME=organization_admin
+          DB_USER=organization_admin
+          DB_PASSWORD=organization_admin
+          DB_HOST=db
+          DB_PORT=5432
+          VITE_API_AUTH_TOKEN=
+          EOF
+
+          cat > .env.prod <<'EOF'
+          DJANGO_DEBUG=0
+          DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+          API_AUTH_ENFORCED=0
+          API_AUTH_TOKEN=
+          API_AUTH_TOKEN_TTL_SECONDS=3600
+          API_AUTH_TOKEN_SALT=organization-admin-api-user-token
+          CRYPTOGRAPHY_KEY=
+          DB_ENGINE=django.db.backends.postgresql
+          DB_NAME=organization_admin
+          DB_USER=organization_admin
+          DB_PASSWORD=organization_admin
+          DB_HOST=db
+          DB_PORT=5432
+          GUNICORN_BIND=0.0.0.0:8000
+          GUNICORN_WORKERS=2
+          GUNICORN_THREADS=2
+          GUNICORN_TIMEOUT=60
+          VITE_API_AUTH_TOKEN=
+          EOF
+
+      - name: Smoke test local stack
+        run: |
+          docker compose --env-file .env.local -f docker-compose.local.yml up -d --build
+          docker compose --env-file .env.local -f docker-compose.local.yml ps
+          test "$(docker inspect -f '{{.State.Running}}' organization-admin-db)" = "true"
+          test "$(docker inspect -f '{{.State.Running}}' organization-admin-backend)" = "true"
+          test "$(docker inspect -f '{{.State.Running}}' organization-admin-frontend)" = "true"
+
+      - name: Stop local stack
+        if: always()
+        run: docker compose --env-file .env.local -f docker-compose.local.yml down -v --remove-orphans
+
+      - name: Smoke test prod stack
+        run: |
+          docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+          docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+          test "$(docker inspect -f '{{.State.Running}}' organization-admin-db-prod)" = "true"
+          test "$(docker inspect -f '{{.State.Running}}' organization-admin-backend-prod)" = "true"
+          test "$(docker inspect -f '{{.State.Running}}' organization-admin-nginx-prod)" = "true"
+          test "$(docker inspect -f '{{.State.Status}}' organization-admin-frontend-builder-prod)" = "exited"
+          test "$(docker inspect -f '{{.State.ExitCode}}' organization-admin-frontend-builder-prod)" = "0"
+
+      - name: Stop prod stack
+        if: always()
+        run: docker compose --env-file .env.prod -f docker-compose.prod.yml down -v --remove-orphans
