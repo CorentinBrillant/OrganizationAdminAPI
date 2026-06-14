@@ -1,0 +1,6 @@
+[allowlist]
+description = "Ignore files encrypted with git-crypt in the repository"
+paths = [
+  '''^\.env\.local$''',
+  '''^\.env\.prod$''',
+]

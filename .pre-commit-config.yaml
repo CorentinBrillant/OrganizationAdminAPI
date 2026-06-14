@@ -3,4 +3,4 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
-        args: ["--redact"]
+        args: ["--redact", "--config", ".gitleaks.toml"]

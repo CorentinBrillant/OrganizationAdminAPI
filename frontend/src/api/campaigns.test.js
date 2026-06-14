@@ -58,7 +58,13 @@ describe('campaigns api', () => {
     const result = await fetchCampaigns()
 
     expect(result).toEqual([
-      { id: 11, title: '2026', last_merge: '2026-01-01', last_manual_edition: null },
+      {
+        id: 11,
+        title: '2026',
+        last_merge: '2026-01-01',
+        last_manual_edition: null,
+        helloasso_form_slug: '',
+      },
     ])
     expect(global.fetch).toHaveBeenCalledWith('/api/campaigns/', {
       headers: { Authorization: 'Bearer test-token' },
