@@ -1,27 +1,27 @@
-compose := docker compose --env-file .env.local -f docker-compose.local.yml
+COMPOSE_LOCAL := docker compose --env-file .env.local -f docker-compose.local.yml
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.prod.yml
 
 .PHONY: build up down restart logs ps clean test-backend test-frontend format-backend lint-frontend precommit-install scan-secrets up-prod down-prod logs-prod ps-prod
 
-build:
-	$(COMPOSE) build
+build-local:
+	$(COMPOSE_LOCAL) build
 
-up:
-	$(COMPOSE) up --build
+up-local:
+	$(COMPOSE_LOCAL) up --build
 
-down:
-	$(COMPOSE) down
+down-local:
+	$(COMPOSE_LOCAL) down
 
-restart: down up
+restart-local: down-local up-local
 
-logs:
-	$(COMPOSE) logs -f
+logs-local:
+	$(COMPOSE_LOCAL) logs -f
 
-ps:
-	$(COMPOSE) ps
+ps-local:
+	$(COMPOSE_LOCAL) ps
 
 up-prod:
-	$(COMPOSE_PROD) up -d --build
+	$(COMPOSE_PROD) up -d --build --remove-orphans
 
 down-prod:
 	$(COMPOSE_PROD) down

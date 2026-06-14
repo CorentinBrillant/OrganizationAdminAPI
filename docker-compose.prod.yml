@@ -47,6 +47,7 @@ services:
       args:
         VITE_API_AUTH_TOKEN: ${VITE_API_AUTH_TOKEN:-}
     container_name: organization-admin-frontend-builder-prod
+    user: "0:0"
     volumes:
       - frontend_dist:/frontend-dist
     depends_on:
