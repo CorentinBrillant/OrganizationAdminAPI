@@ -342,6 +342,44 @@ def campaigns(request):
     return JsonResponse({"campaigns": data})
 
 
+@require_http_methods(["POST"])
+def campaign_settings(request, campaign_id):
+    campaign = Campaign.objects.filter(id=campaign_id).first()
+    if campaign is None:
+        return JsonResponse({"error": f"Campaign {campaign_id} not found."}, status=404)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    helloasso_form_slug = str(payload.get("helloasso_form_slug", "")).strip()
+    campaign.helloasso_form_slug = helloasso_form_slug
+    campaign.save(update_fields=["helloasso_form_slug"])
+
+    return JsonResponse(
+        {
+            "campaign": {
+                "id": campaign.id,
+                "title": campaign.title,
+                "status": campaign.status,
+                "created_at": campaign.created_at.isoformat(),
+                "helloasso_api_key": campaign.helloasso_api_key,
+                "helloasso_form_slug": campaign.helloasso_form_slug,
+                "last_merge": campaign.last_merge.isoformat() if campaign.last_merge else None,
+                "last_manual_edition": (
+                    campaign.last_manual_edition.isoformat()
+                    if campaign.last_manual_edition
+                    else None
+                ),
+            }
+        }
+    )
+
+
 @require_http_methods(["GET", "POST"])
 def campaign_members(request, campaign_id):
     campaign = Campaign.objects.filter(id=campaign_id).first()
@@ -945,6 +983,34 @@ def helloasso_import_campaign(request):
         return JsonResponse({"error": str(exc)}, status=500)
     except HelloAssoAPIError as exc:
         return JsonResponse({"error": str(exc)}, status=502)
+
+
+@require_GET
+def helloasso_membership_forms(request):
+    organization_slug = getattr(settings, "HELLOASSO_ORGANIZATION_SLUG", "").strip()
+    if not organization_slug:
+        return JsonResponse(
+            {"error": "HELLOASSO_ORGANIZATION_SLUG must be configured."},
+            status=500,
+        )
+
+    try:
+        service = HelloAssoService(
+            client_id=getattr(settings, "HELLOASSO_CLIENT_ID", "").strip(),
+            client_secret=getattr(settings, "HELLOASSO_CLIENT_SECRET", "").strip(),
+        )
+        forms = service.get_membership_forms(organization_slug=organization_slug)
+    except HelloAssoConfigError as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+    except HelloAssoAPIError as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    return JsonResponse(
+        {
+            "organization_slug": organization_slug,
+            "forms": forms,
+        }
+    )
 
 
 @require_GET

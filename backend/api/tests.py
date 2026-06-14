@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import urllib.parse
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -28,6 +29,7 @@ from .models import (
 from .services.federation_extranet_service import ExtranetExcelExtraction, FederationExtranetService
 from .services.badge_import_service import BadgeExcelExtraction, BadgeImportService
 from .services.ffck_export_import_service import FfckExportImportService
+from .services.helloasso_service import HelloAssoService
 from .services.member_sync_service import (
     BadgeMemberSyncService,
     FfckMemberSyncService,
@@ -233,6 +235,97 @@ class HelloAssoMemberSyncServiceTests(TestCase):
         self.assertEqual(item.member_id, member.id)
         self.assertEqual(summary["created_members"], 0)
         self.assertEqual(summary["linked_items"], 1)
+
+
+class HelloAssoServiceTests(TestCase):
+    def setUp(self):
+        self.campaign = Campaign.objects.create(
+            title="Campagne test",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-test",
+        )
+        self.import_record = HelloAssoImport.objects.create(
+            campaign=self.campaign,
+            source="form_items",
+            organization_slug="org-test",
+            form_type="Membership",
+            form_slug="campagne-test",
+            with_details=True,
+            items_count=0,
+            payload={"data": []},
+        )
+
+    def test_get_membership_forms_fetches_all_pages_and_normalizes_payload(self):
+        service = HelloAssoService(
+            client_id="client-id", client_secret="client-secret", default_page_size=2
+        )
+        called_urls = []
+
+        def fake_request_json(request):
+            called_urls.append(request.full_url)
+            parsed = urllib.parse.urlparse(request.full_url)
+            query = urllib.parse.parse_qs(parsed.query)
+            page_index = int((query.get("pageIndex") or ["1"])[0])
+
+            if page_index == 1:
+                return {
+                    "data": [
+                        {
+                            "formSlug": "adhesion-2026",
+                            "title": "Adhésion 2026",
+                            "formType": "Membership",
+                            "state": "Public",
+                        },
+                        {
+                            "formSlug": "",
+                            "title": "Sans slug",
+                            "formType": "Membership",
+                            "state": "Draft",
+                        },
+                    ],
+                    "pagination": {"pageCount": 2},
+                }
+
+            return {
+                "data": [
+                    {
+                        "formSlug": "adhesion-jeunes-2026",
+                        "title": "Adhésion Jeunes 2026",
+                        "formType": "Membership",
+                        "state": "Public",
+                    }
+                ],
+                "pagination": {"pageCount": 2},
+            }
+
+        with (
+            patch.object(service, "get_access_token", return_value="token"),
+            patch.object(service, "_request_json", side_effect=fake_request_json),
+        ):
+            forms = service.get_membership_forms(organization_slug="my-org")
+
+        self.assertEqual(len(called_urls), 2)
+        self.assertTrue(all("formTypes=Membership" in url for url in called_urls))
+        self.assertTrue(any("pageIndex=1" in url for url in called_urls))
+        self.assertTrue(any("pageIndex=2" in url for url in called_urls))
+        self.assertEqual(
+            forms,
+            [
+                {
+                    "form_slug": "adhesion-2026",
+                    "title": "Adhésion 2026",
+                    "form_type": "Membership",
+                    "state": "Public",
+                },
+                {
+                    "form_slug": "adhesion-jeunes-2026",
+                    "title": "Adhésion Jeunes 2026",
+                    "form_type": "Membership",
+                    "state": "Public",
+                },
+            ],
+        )
 
     def test_sync_creates_member_when_not_found(self):
         item = HelloAssoItem.objects.create(

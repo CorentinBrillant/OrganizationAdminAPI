@@ -29,11 +29,11 @@ export default function LoginPage({ onLogin }) {
   }
 
   return (
-    <div className="app-shell" style={{ alignItems: 'center', justifyContent: 'center' }}>
-      <main className="app-main" style={{ maxWidth: 420, width: '100%' }}>
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12, padding: 20 }}>
-          <h1 style={{ margin: 0 }}>Connexion</h1>
-          <label>
+    <div className="app-shell login-shell">
+      <main className="app-main login-main">
+        <form onSubmit={handleSubmit} className="login-form">
+          <h1 className="login-title">Connexion</h1>
+          <label className="login-field">
             Login
             <input
               type="text"
@@ -43,7 +43,7 @@ export default function LoginPage({ onLogin }) {
               required
             />
           </label>
-          <label>
+          <label className="login-field">
             Mot de passe
             <input
               type="password"
@@ -53,7 +53,7 @@ export default function LoginPage({ onLogin }) {
               required
             />
           </label>
-          {error ? <p style={{ margin: 0, color: '#b42318' }}>{error}</p> : null}
+          {error ? <p className="login-error">{error}</p> : null}
           <button type="submit" disabled={submitting}>
             {submitting ? 'Connexion...' : 'Se connecter'}
           </button>

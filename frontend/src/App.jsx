@@ -8,6 +8,7 @@ import DashboardFusionPage from './pages/DashboardFusionPage'
 import LoginPage from './pages/LoginPage'
 import MemberDedupPage from './pages/MemberDedupPage'
 import MonitoringCampagnesPage from './pages/MonitoringCampagnesPage'
+import SettingsCampagnePage from './pages/SettingsCampagnePage'
 import SourceBadgesPage from './pages/SourceBadgesPage'
 import SourceFfckPage from './pages/SourceFfckPage'
 import SourceHelloAssoPage from './pages/SourceHelloAssoPage'
@@ -19,6 +20,7 @@ const pages = {
   badges: SourceBadgesPage,
   dedup: MemberDedupPage,
   monitoring: MonitoringCampagnesPage,
+  settings: SettingsCampagnePage,
 }
 
 function App() {

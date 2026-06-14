@@ -24,8 +24,10 @@ export async function fetchCampaigns() {
         typeof rawLastManualEdition === 'string' && rawLastManualEdition.trim()
           ? rawLastManualEdition
           : null
+      const helloasso_form_slug =
+        typeof campaign?.helloasso_form_slug === 'string' ? campaign.helloasso_form_slug.trim() : ''
 
-      return { id, title, last_merge, last_manual_edition }
+      return { id, title, last_merge, last_manual_edition, helloasso_form_slug }
     })
     .filter(Boolean)
 }
@@ -184,4 +186,59 @@ export async function saveCampaignManualEdition(campaignId, members) {
         ? body.last_manual_edition
         : null,
   }
+}
+
+export async function updateCampaignSettings(campaignId, { helloasso_form_slug = '' } = {}) {
+  const normalizedCampaignId = Number(campaignId)
+  if (!Number.isFinite(normalizedCampaignId)) {
+    throw new Error('campaignId must be a number')
+  }
+
+  const csrfToken = readCookie('csrftoken')
+  const headers = withApiAuthHeaders({ 'Content-Type': 'application/json' })
+  if (csrfToken) headers['X-CSRFToken'] = csrfToken
+
+  const response = await fetch(`/api/campaigns/${normalizedCampaignId}/settings/`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      helloasso_form_slug: String(helloasso_form_slug || '').trim(),
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const payload = await response.json()
+  const campaign = payload?.campaign || {}
+  return {
+    id: Number(campaign?.id),
+    title: String(campaign?.title || '').trim(),
+    helloasso_form_slug: String(campaign?.helloasso_form_slug || '').trim(),
+  }
+}
+
+export async function fetchHelloAssoMembershipForms() {
+  const response = await fetch('/api/helloasso/membership-forms/', {
+    headers: withApiAuthHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const payload = await response.json()
+  const forms = Array.isArray(payload?.forms) ? payload.forms : []
+  return forms
+    .map((form) => {
+      const form_slug = String(form?.form_slug || '').trim()
+      if (!form_slug) return null
+      return {
+        form_slug,
+        title: String(form?.title || '').trim(),
+        form_type: String(form?.form_type || '').trim(),
+        state: String(form?.state || '').trim(),
+      }
+    })
+    .filter(Boolean)
 }

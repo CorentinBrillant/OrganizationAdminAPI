@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
 import {
@@ -10,7 +10,6 @@ import {
 } from '../store/campaignsSlice'
 
 const THEME_STORE_KEY = 'ffck:theme'
-const API_KEY_STORE_KEY = 'ffck:source:helloasso:apiKey'
 const CAMPAIGN_STORE_KEY = 'ffck:campaign'
 
 function formatCampaignLabel(value) {
@@ -24,14 +23,10 @@ export default function Sidebar({ activePage, onPageChange, user = null, onLogou
   const activeCampaign = useSelector((state) => state.campaigns.activeCampaign)
   const activeCampaignId = useSelector((state) => state.campaigns.activeCampaignId)
 
-  const [apiKey, setApiKey] = useState('')
   const [theme, setTheme] = useState('dark')
 
   useEffect(() => {
     dispatch(loadCampaigns())
-
-    const storedApiKey = localStorage.getItem(API_KEY_STORE_KEY) || ''
-    setApiKey(storedApiKey)
 
     const storedTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark'
     setTheme(storedTheme === 'light' ? 'light' : 'dark')
@@ -40,7 +35,6 @@ export default function Sidebar({ activePage, onPageChange, user = null, onLogou
 
   useEffect(() => {
     const onStorage = () => {
-      setApiKey(localStorage.getItem(API_KEY_STORE_KEY) || '')
       const nextTheme = localStorage.getItem(THEME_STORE_KEY) || 'dark'
       setTheme(nextTheme === 'light' ? 'light' : 'dark')
     }
@@ -48,19 +42,6 @@ export default function Sidebar({ activePage, onPageChange, user = null, onLogou
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [])
-
-  const maskedApiKey = useMemo(() => {
-    if (!apiKey) return 'Aucune clé enregistrée'
-    if (apiKey.length <= 6) return 'Clé enregistrée (••••••)'
-    return `Clé enregistrée (${apiKey.slice(0, 3)}••••${apiKey.slice(-3)})`
-  }, [apiKey])
-
-  const saveApiKey = () => {
-    const value = apiKey.trim()
-    if (value) localStorage.setItem(API_KEY_STORE_KEY, value)
-    else localStorage.removeItem(API_KEY_STORE_KEY)
-    setApiKey(value)
-  }
 
   const handleAddCampaign = () => {
     const next = window.prompt('Nom de la campagne (ex: 2027)')
@@ -151,6 +132,13 @@ export default function Sidebar({ activePage, onPageChange, user = null, onLogou
             Dedoublonnage
           </button>
           <button
+            className={activePage === 'settings' ? 'active' : ''}
+            type="button"
+            onClick={() => onPageChange('settings')}
+          >
+            Settings Campagne
+          </button>
+          <button
             className={activePage === 'monitoring' ? 'active' : ''}
             type="button"
             onClick={() => onPageChange('monitoring')}
@@ -186,24 +174,6 @@ export default function Sidebar({ activePage, onPageChange, user = null, onLogou
       </div>
 
       <div className="sidebar-footer">
-        <section className="source-config" aria-label="Configuration des sources">
-          <div className="panel-title">Configuration des sources</div>
-          <label className="micro" htmlFor="helloAssoApiKey">Clé API HelloAsso</label>
-          <input
-            id="helloAssoApiKey"
-            type="password"
-            placeholder="ha_live_..."
-            autoComplete="off"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-          <div className="source-row">
-            <button id="saveApiKey" className="btn-subtle" type="button" onClick={saveApiKey}>
-              Enregistrer
-            </button>
-            <span className="micro" aria-live="polite">{maskedApiKey}</span>
-          </div>
-        </section>
         <div className="identity">
           {user?.name ? (
             <>

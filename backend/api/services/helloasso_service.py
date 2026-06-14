@@ -20,6 +20,7 @@ class HelloAssoService:
     client_secret: str
     token_url: str = "https://api.helloasso.com/oauth2/token"
     api_base_url: str = "https://api.helloasso.com/v5"
+    default_page_size: int = 100
 
     def _base_headers(self) -> dict:
         user_agent = os.getenv(
@@ -111,3 +112,87 @@ class HelloAssoService:
         )
 
         return self._request_json(request)
+
+    def get_membership_forms(self, organization_slug: str) -> list[dict]:
+        if not organization_slug:
+            raise HelloAssoConfigError("organization_slug is required.")
+
+        token = self.get_access_token()
+        forms = []
+        page_index = 1
+
+        while True:
+            query = urllib.parse.urlencode(
+                {
+                    "formTypes": "Membership",
+                    "pageIndex": str(page_index),
+                    "pageSize": str(self.default_page_size),
+                }
+            )
+            url = f"{self.api_base_url}/organizations/{organization_slug}/forms?{query}"
+            request = urllib.request.Request(
+                url,
+                method="GET",
+                headers={
+                    **self._base_headers(),
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+
+            payload = self._request_json(request)
+            page_data = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(page_data, list):
+                page_data = []
+            forms.extend(page_data)
+
+            pagination = payload.get("pagination") if isinstance(payload, dict) else {}
+            if not isinstance(pagination, dict):
+                pagination = {}
+
+            page_count = pagination.get("pageCount")
+            if isinstance(page_count, int) and page_count > 0:
+                if page_index >= page_count:
+                    break
+                page_index += 1
+                continue
+
+            total_pages = pagination.get("totalPages")
+            if isinstance(total_pages, int) and total_pages > 0:
+                if page_index >= total_pages:
+                    break
+                page_index += 1
+                continue
+
+            has_next_page = pagination.get("hasNextPage")
+            if isinstance(has_next_page, bool):
+                if not has_next_page:
+                    break
+                page_index += 1
+                continue
+
+            # Fallback when pagination metadata is missing:
+            # if we received less than page size, we assume it's the last page.
+            if len(page_data) < self.default_page_size:
+                break
+            page_index += 1
+
+        normalized = []
+        for form in forms:
+            if not isinstance(form, dict):
+                continue
+            form_slug = str(form.get("formSlug") or form.get("slug") or "").strip()
+            title = str(form.get("title") or "").strip()
+            form_type = str(form.get("formType") or "").strip()
+            state = str(form.get("state") or "").strip()
+            if not form_slug:
+                continue
+            normalized.append(
+                {
+                    "form_slug": form_slug,
+                    "title": title,
+                    "form_type": form_type,
+                    "state": state,
+                }
+            )
+
+        return normalized

@@ -9,6 +9,7 @@ from .views import (
     badge_latest_rows,
     badge_sync_campaign_members,
     campaign_manual_edition,
+    campaign_settings,
     campaign_member_duplicate_merge,
     campaign_member_duplicate_suggestions,
     campaign_members,
@@ -18,6 +19,7 @@ from .views import (
     ffck_sync_campaign_members,
     federation_extranet_extract_excel,
     helloasso_import_campaign,
+    helloasso_membership_forms,
     helloasso_latest_items,
     helloasso_sync_campaign_members,
     sync_campaign_members,
@@ -33,6 +35,11 @@ urlpatterns = [
     path("auth/session/", _protected(auth_session), name="auth-session"),
     path("auth/logout/", _protected(auth_logout), name="auth-logout"),
     path("campaigns/", _protected(campaigns), name="campaigns"),
+    path(
+        "campaigns/<int:campaign_id>/settings/",
+        _protected(campaign_settings),
+        name="campaign-settings",
+    ),
     path(
         "campaigns/<int:campaign_id>/members/",
         _protected(campaign_members),
@@ -63,6 +70,11 @@ urlpatterns = [
     ),
     path(
         "helloasso/import/", _protected(helloasso_import_campaign), name="helloasso-import-campaign"
+    ),
+    path(
+        "helloasso/membership-forms/",
+        _protected(helloasso_membership_forms),
+        name="helloasso-membership-forms",
     ),
     path(
         "helloasso/sync-members/",

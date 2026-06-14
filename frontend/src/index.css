@@ -205,6 +205,99 @@ body,
   background: #16171d;
 }
 
+.login-shell {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 24px;
+}
+
+.login-main {
+  width: min(420px, 100%);
+  height: auto;
+}
+
+.login-form {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.login-title {
+  margin: 0;
+}
+
+.login-field {
+  display: grid;
+  gap: 6px;
+}
+
+.login-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  background: color-mix(in oklch, var(--surface) 92%, black);
+  color: var(--fg);
+  padding: 10px;
+}
+
+.login-error {
+  margin: 0;
+  color: #b42318;
+}
+
+.settings-campaign-page {
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.settings-campaign-title {
+  margin: 0;
+}
+
+.settings-campaign-form {
+  width: min(560px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-campaign-field {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.settings-campaign-form input,
+.settings-campaign-form select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  background: color-mix(in oklch, var(--surface) 92%, black);
+  color: var(--fg);
+  padding: 10px;
+}
+
+.settings-campaign-error {
+  margin: 0;
+  color: #b42318;
+}
+
+.settings-campaign-success {
+  margin: 0;
+  color: #067647;
+}
+
 @media (max-width: 1024px) {
   .app-shell {
     grid-template-columns: 1fr;
