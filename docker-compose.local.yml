@@ -29,6 +29,7 @@ services:
     environment:
       DJANGO_DEBUG: "1"
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,backend"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
       DB_ENGINE: django.db.backends.postgresql
       DB_NAME: organization_admin
       DB_USER: organization_admin
