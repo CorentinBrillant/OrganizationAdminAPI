@@ -15,6 +15,7 @@ RUN uv sync --frozen --no-install-project
 
 COPY . .
 
+RUN mkdir -p /app/staticfiles
 RUN chown -R app:app /app /opt/venv
 
 ENV PATH="/opt/venv/bin:$PATH"
@@ -27,4 +28,4 @@ EXPOSE 8000
 
 USER app
 
-CMD ["sh", "-c", "python manage.py migrate && gunicorn backend.wsgi:application --bind ${GUNICORN_BIND} --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --timeout ${GUNICORN_TIMEOUT}"]
+CMD ["sh", "-c", "python manage.py migrate && python manage.py collectstatic --noinput && gunicorn backend.wsgi:application --bind ${GUNICORN_BIND} --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --timeout ${GUNICORN_TIMEOUT}"]
