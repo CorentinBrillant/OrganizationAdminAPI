@@ -38,6 +38,7 @@ services:
       - "8000"
     volumes:
       - django_static:/app/staticfiles
+      - django_media:/app/media
     depends_on:
       db:
         condition: service_healthy
@@ -79,3 +80,4 @@ services:
 volumes:
   frontend_dist:
   django_static:
+  django_media:

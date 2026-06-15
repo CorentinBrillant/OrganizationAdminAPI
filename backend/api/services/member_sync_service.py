@@ -177,6 +177,8 @@ class HelloAssoMemberSyncService:
 
         members_by_identity = {}
         for member in Member.objects.filter(campaign=self.campaign).order_by("id"):
+            if member.is_deleted:
+                continue
             key = _identity_key(member.first_name, member.name)
             if key and key not in members_by_identity:
                 members_by_identity[key] = member
@@ -201,7 +203,11 @@ class HelloAssoMemberSyncService:
                 continue
 
             linked_member = helloasso_item.member
-            if linked_member is not None and linked_member.campaign_id == self.campaign.id:
+            if (
+                linked_member is not None
+                and linked_member.campaign_id == self.campaign.id
+                and not linked_member.is_deleted
+            ):
                 member = linked_member
                 if key not in members_by_identity:
                     members_by_identity[key] = member
@@ -298,6 +304,8 @@ class FfckMemberSyncService:
 
         members_by_identity = {}
         for member in Member.objects.filter(campaign=self.campaign).order_by("id"):
+            if member.is_deleted:
+                continue
             key = _identity_key(member.first_name, member.name)
             if key and key not in members_by_identity:
                 members_by_identity[key] = member
@@ -317,7 +325,11 @@ class FfckMemberSyncService:
                 continue
 
             linked_member = row.member
-            if linked_member is not None and linked_member.campaign_id == self.campaign.id:
+            if (
+                linked_member is not None
+                and linked_member.campaign_id == self.campaign.id
+                and not linked_member.is_deleted
+            ):
                 member = linked_member
                 if key not in members_by_identity:
                     members_by_identity[key] = member
@@ -401,7 +413,11 @@ class BadgeMemberSyncService:
                 "skipped_rows": 0,
             }
 
-        members = list(Member.objects.filter(campaign=self.campaign).order_by("id"))
+        members = [
+            member
+            for member in Member.objects.filter(campaign=self.campaign).order_by("id")
+            if not member.is_deleted
+        ]
         members_by_identity = {}
 
         for member in members:
@@ -410,8 +426,12 @@ class BadgeMemberSyncService:
                 members_by_identity[identity_key] = member
 
         # The latest import is considered authoritative for current badge state.
-        Member.objects.filter(campaign=self.campaign).update(badge_owned=False, badge_ordered=False)
         for member in members:
+            if member.badge_owned or member.badge_ordered:
+                member.badge_owned = False
+                member.badge_ordered = False
+                member.save(update_fields=["badge_owned", "badge_ordered"])
+                continue
             member.badge_owned = False
             member.badge_ordered = False
 

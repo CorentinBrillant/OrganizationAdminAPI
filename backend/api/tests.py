@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import tempfile
 import time
 import urllib.parse
 import zipfile
@@ -8,6 +10,7 @@ from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -28,6 +31,7 @@ from .models import (
 )
 from .services.federation_extranet_service import ExtranetExcelExtraction, FederationExtranetService
 from .services.badge_import_service import BadgeExcelExtraction, BadgeImportService
+from .services.file_blob_encryption import FILE_BLOB_ENCRYPTION_PREFIX
 from .services.ffck_export_import_service import FfckExportImportService
 from .services.helloasso_service import HelloAssoService
 from .services.member_sync_service import (
@@ -693,6 +697,64 @@ class BadgeImportAndSyncServiceTests(TestCase):
         self.assertTrue(self.member.badge_ordered)
 
 
+class FileBlobEncryptionTests(TestCase):
+    @override_settings(IMPORT_FILE_BLOB_ENCRYPTION_KEY=Fernet.generate_key().decode("utf-8"))
+    def test_ffck_export_file_blob_is_encrypted_at_rest(self):
+        campaign = Campaign.objects.create(
+            title="Campagne ffck blob encrypt",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-blob-ffck",
+        )
+        raw_blob = b"xlsx-content-ffck"
+        ffck_export = FfckExport.objects.create(
+            campaign=campaign,
+            source="licences_excel",
+            rows_count=0,
+            filename="export.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_size=len(raw_blob),
+            file_sha256="a" * 64,
+            file_blob=raw_blob,
+        )
+
+        stored_blob = FfckExport.objects.filter(id=ffck_export.id).values_list("file_blob", flat=True).first()
+        self.assertIsNotNone(stored_blob)
+        self.assertNotEqual(bytes(stored_blob), raw_blob)
+        self.assertTrue(bytes(stored_blob).startswith(FILE_BLOB_ENCRYPTION_PREFIX))
+
+        ffck_export.refresh_from_db()
+        self.assertEqual(ffck_export.get_decrypted_file_blob(), raw_blob)
+
+    @override_settings(IMPORT_FILE_BLOB_ENCRYPTION_KEY=Fernet.generate_key().decode("utf-8"))
+    def test_badge_import_file_blob_is_encrypted_at_rest(self):
+        campaign = Campaign.objects.create(
+            title="Campagne badge blob encrypt",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-blob-badge",
+        )
+        raw_blob = b"xlsx-content-badge"
+        badge_import = BadgeImport.objects.create(
+            campaign=campaign,
+            source="badge_excel",
+            rows_count=0,
+            filename="badges.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_size=len(raw_blob),
+            file_sha256="b" * 64,
+            file_blob=raw_blob,
+        )
+
+        stored_blob = BadgeImport.objects.filter(id=badge_import.id).values_list("file_blob", flat=True).first()
+        self.assertIsNotNone(stored_blob)
+        self.assertNotEqual(bytes(stored_blob), raw_blob)
+        self.assertTrue(bytes(stored_blob).startswith(FILE_BLOB_ENCRYPTION_PREFIX))
+
+        badge_import.refresh_from_db()
+        self.assertEqual(badge_import.get_decrypted_file_blob(), raw_blob)
+
+
 class BadgeImportAndSyncViewTests(AuthenticatedApiTestCase):
     def test_badge_import_endpoint_imports_and_syncs_members(self):
         campaign = Campaign.objects.create(
@@ -1267,8 +1329,119 @@ class CampaignMembersCreateViewTests(AuthenticatedApiTestCase):
         self.assertEqual(response.json().get("error"), "'email' is required.")
 
 
+class CampaignMemberCertificatFileViewTests(AuthenticatedApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.media_root = tempfile.mkdtemp(prefix="certificat-media-")
+        self.campaign = Campaign.objects.create(
+            title="Campagne certificat upload",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-certificat-upload",
+        )
+        self.member = Member.objects.create(
+            campaign=self.campaign,
+            first_name="Alice",
+            name="Durand",
+            email="alice@example.com",
+            ffck_licence="",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.media_root, ignore_errors=True)
+        super().tearDown()
+
+    def test_upload_download_and_delete_member_certificat_file(self):
+        with override_settings(
+            MEDIA_ROOT=self.media_root,
+            MEMBER_CERTIFICAT_ENCRYPTION_KEY="QWW2l9vX1u3v9rOnZD9oAg-sdWvd8v5CPGK8_PpuXIo=",
+        ):
+            upload_response = self.client.post(
+                f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/certificat-file/",
+                data={
+                    "file": SimpleUploadedFile(
+                        "certificat.pdf",
+                        b"%PDF-1.4 test certificate",
+                        content_type="application/pdf",
+                    )
+                },
+            )
+
+            self.assertEqual(upload_response.status_code, 200)
+            payload = upload_response.json().get("member", {})
+            certificat_file = payload.get("certificat_file", {})
+            self.assertTrue(certificat_file.get("uploaded"))
+            self.assertEqual(certificat_file.get("filename"), "certificat.pdf")
+            self.assertEqual(certificat_file.get("content_type"), "application/pdf")
+            self.assertGreater(certificat_file.get("size"), 0)
+
+            self.member.refresh_from_db()
+            self.assertTrue(bool(self.member.certificat_file.name))
+            stored_path = self.member.certificat_file.path
+            self.assertTrue(os.path.exists(stored_path))
+            with open(stored_path, "rb") as stored_file:
+                self.assertNotEqual(stored_file.read(), b"%PDF-1.4 test certificate")
+
+            download_response = self.client.get(
+                f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/certificat-file/download/"
+            )
+            self.assertEqual(download_response.status_code, 200)
+            self.assertEqual(download_response["Content-Type"], "application/pdf")
+            self.assertIn("certificat.pdf", download_response["Content-Disposition"])
+            self.assertEqual(download_response.content, b"%PDF-1.4 test certificate")
+
+            delete_response = self.client.delete(
+                f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/certificat-file/delete/"
+            )
+            self.assertEqual(delete_response.status_code, 200)
+            self.assertEqual(delete_response.json().get("deleted"), True)
+
+            self.member.refresh_from_db()
+            self.assertFalse(bool(self.member.certificat_file.name))
+            self.assertEqual(self.member.certificat_file_original_name, "")
+            self.assertEqual(self.member.certificat_file_content_type, "")
+            self.assertEqual(self.member.certificat_file_size, 0)
+            self.assertIsNone(self.member.certificat_file_uploaded_at)
+            self.assertFalse(os.path.exists(stored_path))
+
+    def test_upload_rejects_unsupported_extension(self):
+        with override_settings(
+            MEDIA_ROOT=self.media_root,
+            MEMBER_CERTIFICAT_ENCRYPTION_KEY="QWW2l9vX1u3v9rOnZD9oAg-sdWvd8v5CPGK8_PpuXIo=",
+        ):
+            response = self.client.post(
+                f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/certificat-file/",
+                data={
+                    "file": SimpleUploadedFile(
+                        "certificat.txt",
+                        b"plain text",
+                        content_type="text/plain",
+                    )
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unsupported file extension", response.json().get("error", ""))
+
+    def test_upload_fails_when_encryption_key_is_missing(self):
+        with override_settings(MEDIA_ROOT=self.media_root, MEMBER_CERTIFICAT_ENCRYPTION_KEY=""):
+            response = self.client.post(
+                f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/certificat-file/",
+                data={
+                    "file": SimpleUploadedFile(
+                        "certificat.pdf",
+                        b"%PDF-1.4 test certificate",
+                        content_type="application/pdf",
+                    )
+                },
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("MEMBER_CERTIFICAT_ENCRYPTION_KEY", response.json().get("error", ""))
+
+
 class CampaignMembersBulkDeleteViewTests(AuthenticatedApiTestCase):
-    def test_bulk_delete_members_for_campaign(self):
+    def test_bulk_delete_members_for_campaign_soft_deletes_members(self):
         campaign = Campaign.objects.create(
             title="Campagne suppression membre",
             status="active",
@@ -1314,9 +1487,42 @@ class CampaignMembersBulkDeleteViewTests(AuthenticatedApiTestCase):
         self.assertEqual(body.get("campaign_id"), campaign.id)
         self.assertEqual(body.get("deleted_count"), 2)
         self.assertEqual(body.get("deleted_member_ids"), [member_1.id, member_2.id])
-        self.assertFalse(Member.objects.filter(id=member_1.id).exists())
-        self.assertFalse(Member.objects.filter(id=member_2.id).exists())
-        self.assertTrue(Member.objects.filter(id=other_member.id).exists())
+        member_1.refresh_from_db()
+        member_2.refresh_from_db()
+        other_member.refresh_from_db()
+        self.assertTrue(member_1.is_deleted)
+        self.assertTrue(member_2.is_deleted)
+        self.assertFalse(other_member.is_deleted)
+
+    def test_campaign_members_list_excludes_soft_deleted_members(self):
+        campaign = Campaign.objects.create(
+            title="Campagne liste membre",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-list-member",
+        )
+        visible_member = Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Durand",
+            email="alice@example.com",
+            ffck_licence="",
+        )
+        Member.objects.create(
+            campaign=campaign,
+            first_name="Bob",
+            name="Martin",
+            email="bob@example.com",
+            ffck_licence="",
+            is_deleted=True,
+        )
+
+        response = self.client.get(f"/api/campaigns/{campaign.id}/members/")
+
+        self.assertEqual(response.status_code, 200)
+        members = response.json().get("members", [])
+        self.assertEqual(len(members), 1)
+        self.assertEqual(members[0]["id"], visible_member.id)
 
     def test_bulk_delete_requires_member_ids_array(self):
         campaign = Campaign.objects.create(

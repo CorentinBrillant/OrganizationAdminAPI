@@ -1,7 +1,32 @@
 import hashlib
+import uuid
+from pathlib import Path
 
 from django.db import models
 from django_cryptography.fields import encrypt
+from .services.file_blob_encryption import decrypt_file_blob, encrypt_file_blob
+
+
+def member_certificat_upload_to(instance, filename):
+    extension = Path(str(filename or "")).suffix.lower()
+    return f"members/certificats/{uuid.uuid4().hex}{extension}"
+
+
+class EncryptedFileBlobMixin(models.Model):
+    class Meta:
+        abstract = True
+
+    file_blob: bytes | None
+
+    def set_decrypted_file_blob(self, raw_content: bytes | None) -> None:
+        self.file_blob = encrypt_file_blob(raw_content)
+
+    def get_decrypted_file_blob(self) -> bytes | None:
+        return decrypt_file_blob(self.file_blob)
+
+    def save(self, *args, **kwargs):
+        self.file_blob = encrypt_file_blob(self.file_blob)
+        return super().save(*args, **kwargs)
 
 
 class Campaign(models.Model):
@@ -27,12 +52,22 @@ class Member(models.Model):
     helloasso_form_slug = encrypt(models.CharField(max_length=255, blank=True, default=""))
     email = encrypt(models.EmailField())
     certificat = encrypt(models.URLField(blank=True, default=""))
+    certificat_file = models.FileField(
+        upload_to=member_certificat_upload_to,
+        blank=True,
+        default="",
+    )
+    certificat_file_uploaded_at = models.DateTimeField(null=True, blank=True)
+    certificat_file_original_name = models.CharField(max_length=255, blank=True, default="")
+    certificat_file_content_type = models.CharField(max_length=255, blank=True, default="")
+    certificat_file_size = models.PositiveIntegerField(default=0)
     autorisation_parentale = encrypt(models.URLField(blank=True, default=""))
     photo = encrypt(models.URLField(blank=True, default=""))
     option_ia = models.BooleanField(default=False)
     manual_review = models.BooleanField(default=False)
     badge_owned = encrypt(models.BooleanField(default=False))
     badge_ordered = encrypt(models.BooleanField(default=False))
+    is_deleted = encrypt(models.BooleanField(default=False))
     created_at = models.DateTimeField(auto_now_add=True)
     campaign = models.ForeignKey(
         Campaign,
@@ -164,7 +199,7 @@ class HelloAssoItem(models.Model):
         return super().save(*args, **kwargs)
 
 
-class FfckExport(models.Model):
+class FfckExport(EncryptedFileBlobMixin, models.Model):
     campaign = models.ForeignKey(
         Campaign,
         on_delete=models.PROTECT,
@@ -181,7 +216,7 @@ class FfckExport(models.Model):
     content_type = encrypt(models.CharField(max_length=255, blank=True, default=""))
     file_size = models.PositiveIntegerField(default=0)
     file_sha256 = encrypt(models.CharField(max_length=64, blank=True, default=""))
-    file_blob = encrypt(models.BinaryField(null=True, blank=True))
+    file_blob = models.BinaryField(null=True, blank=True)
     fetched_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -223,7 +258,7 @@ class FfckExportRow(models.Model):
         ]
 
 
-class BadgeImport(models.Model):
+class BadgeImport(EncryptedFileBlobMixin, models.Model):
     id = models.AutoField(primary_key=True, serialize=False)
     campaign = models.ForeignKey(
         Campaign,
@@ -236,7 +271,7 @@ class BadgeImport(models.Model):
     content_type = encrypt(models.CharField(max_length=255, blank=True, default=""))
     file_size = models.PositiveIntegerField(default=0)
     file_sha256 = encrypt(models.CharField(max_length=64, blank=True, default=""))
-    file_blob = encrypt(models.BinaryField(null=True, blank=True))
+    file_blob = models.BinaryField(null=True, blank=True)
     fetched_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

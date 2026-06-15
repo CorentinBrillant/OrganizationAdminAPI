@@ -34,3 +34,4 @@ dist-ssr
 # Python bytecode
 __pycache__/
 *.pyc
+backend/media/

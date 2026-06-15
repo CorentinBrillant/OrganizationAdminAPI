@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid 10001 --home /app app
+RUN groupadd --system --gid 10001 appuser \
+    && useradd --system --uid 10001 --gid 10001 --home /app appuser
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /usr/local/bin/uv
 
@@ -15,8 +16,10 @@ RUN uv sync --frozen --no-install-project
 
 COPY . .
 
-RUN mkdir -p /app/staticfiles
-RUN chown -R app:app /app /opt/venv
+RUN mkdir -p /app/staticfiles /app/media \
+    && chown -R appuser:appuser /app /opt/venv \
+    && find /app/staticfiles /app/media -type d -exec chmod 750 {} \; \
+    && find /app/staticfiles /app/media -type f -exec chmod 640 {} \;
 
 ENV PATH="/opt/venv/bin:$PATH"
 ENV GUNICORN_BIND=0.0.0.0:8000
@@ -26,6 +29,6 @@ ENV GUNICORN_TIMEOUT=60
 
 EXPOSE 8000
 
-USER app
+USER appuser
 
-CMD ["sh", "-c", "python manage.py migrate && python manage.py collectstatic --noinput && gunicorn backend.wsgi:application --bind ${GUNICORN_BIND} --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --timeout ${GUNICORN_TIMEOUT}"]
+CMD ["sh", "-c", "umask 027 && python manage.py migrate && python manage.py collectstatic --noinput && gunicorn backend.wsgi:application --bind ${GUNICORN_BIND} --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --timeout ${GUNICORN_TIMEOUT}"]

@@ -94,7 +94,11 @@ class MemberDedupService:
 
     @transaction.atomic
     def generate_suggestions(self, min_score: float = 0.8) -> dict:
-        members = list(Member.objects.filter(campaign=self.campaign).order_by("id"))
+        members = [
+            member
+            for member in Member.objects.filter(campaign=self.campaign).order_by("id")
+            if not member.is_deleted
+        ]
         pair_count = 0
         suggestion_ids = []
 

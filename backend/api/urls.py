@@ -9,6 +9,9 @@ from .views import (
     badge_latest_rows,
     badge_sync_campaign_members,
     campaign_manual_edition,
+    campaign_member_certificat_delete,
+    campaign_member_certificat_download,
+    campaign_member_certificat_upload,
     campaign_settings,
     campaign_member_duplicate_merge,
     campaign_member_duplicate_suggestions,
@@ -44,6 +47,21 @@ urlpatterns = [
         "campaigns/<int:campaign_id>/members/",
         _protected(campaign_members),
         name="campaign-members",
+    ),
+    path(
+        "campaigns/<int:campaign_id>/members/<int:member_id>/certificat-file/",
+        _protected(campaign_member_certificat_upload),
+        name="campaign-member-certificat-upload",
+    ),
+    path(
+        "campaigns/<int:campaign_id>/members/<int:member_id>/certificat-file/download/",
+        _protected(campaign_member_certificat_download),
+        name="campaign-member-certificat-download",
+    ),
+    path(
+        "campaigns/<int:campaign_id>/members/<int:member_id>/certificat-file/delete/",
+        _protected(campaign_member_certificat_delete),
+        name="campaign-member-certificat-delete",
     ),
     path(
         "campaigns/<int:campaign_id>/members/bulk-delete/",

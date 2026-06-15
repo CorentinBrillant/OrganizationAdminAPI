@@ -153,6 +153,32 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.getenv("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media")))
+MEMBER_CERTIFICAT_MAX_BYTES = int(
+    os.getenv("MEMBER_CERTIFICAT_MAX_BYTES", str(5 * 1024 * 1024)) or str(5 * 1024 * 1024)
+)
+MEMBER_CERTIFICAT_ALLOWED_EXTENSIONS = [
+    ext.strip().lower()
+    for ext in os.getenv("MEMBER_CERTIFICAT_ALLOWED_EXTENSIONS", ".pdf,.jpg,.jpeg,.png").split(",")
+    if ext.strip()
+]
+MEMBER_CERTIFICAT_ALLOWED_CONTENT_TYPES = [
+    content_type.strip().lower()
+    for content_type in os.getenv(
+        "MEMBER_CERTIFICAT_ALLOWED_CONTENT_TYPES",
+        "application/pdf,image/jpeg,image/png",
+    ).split(",")
+    if content_type.strip()
+]
+MEMBER_CERTIFICAT_ENCRYPTION_KEY = os.getenv("MEMBER_CERTIFICAT_ENCRYPTION_KEY", "").strip()
+IMPORT_FILE_BLOB_ENCRYPTION_KEY = os.getenv("IMPORT_FILE_BLOB_ENCRYPTION_KEY", "").strip()
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.getenv("DJANGO_DATA_UPLOAD_MAX_MEMORY_SIZE", str(8 * 1024 * 1024)) or str(8 * 1024 * 1024)
+)
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.getenv("DJANGO_FILE_UPLOAD_MAX_MEMORY_SIZE", str(8 * 1024 * 1024)) or str(8 * 1024 * 1024)
+)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field

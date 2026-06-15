@@ -110,6 +110,17 @@ export async function fetchCampaignMembers(campaignId, options = {}) {
     helloasso_form_slug: String(member?.helloasso_form_slug || '').trim(),
     email: String(member?.email || '').trim(),
     certificat: String(member?.certificat || '').trim(),
+    certificat_file: {
+      uploaded: Boolean(member?.certificat_file?.uploaded),
+      filename: String(member?.certificat_file?.filename || '').trim(),
+      content_type: String(member?.certificat_file?.content_type || '').trim(),
+      size: Number(member?.certificat_file?.size) || 0,
+      uploaded_at:
+        typeof member?.certificat_file?.uploaded_at === 'string' &&
+        member.certificat_file.uploaded_at.trim()
+          ? member.certificat_file.uploaded_at
+          : null,
+    },
     autorisation_parentale: String(member?.autorisation_parentale || '').trim(),
     photo: String(member?.photo || '').trim(),
     option_ia: Boolean(member?.option_ia),

@@ -1,9 +1,12 @@
 import hashlib
 import json
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
+from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -205,6 +208,97 @@ def _resolve_campaign(request):
         return None, JsonResponse({"error": f"Campaign {campaign_id} not found."}, status=404)
 
     return campaign, None
+
+
+def _resolve_campaign_member(campaign_id, member_id):
+    campaign = Campaign.objects.filter(id=campaign_id).first()
+    if campaign is None:
+        return None, None, JsonResponse({"error": f"Campaign {campaign_id} not found."}, status=404)
+
+    member = Member.objects.filter(campaign_id=campaign_id, id=member_id).first()
+    if member is None or member.is_deleted:
+        return campaign, None, JsonResponse({"error": f"Member {member_id} not found."}, status=404)
+
+    return campaign, member, None
+
+
+def _serialize_member(member: Member) -> dict:
+    certificat_file_name = member.certificat_file.name if member.certificat_file else ""
+    return {
+        "id": member.id,
+        "first_name": member.first_name,
+        "name": member.name,
+        "ffck_licence": member.ffck_licence,
+        "ffck_certificat": member.ffck_certificat,
+        "ffck_certificat_expiration": member.ffck_certificat_expiration,
+        "ffck_licence_type": member.ffck_licence_type,
+        "helloasso_form_slug": member.helloasso_form_slug,
+        "email": member.email,
+        "created_at": member.created_at.isoformat(),
+        "campaign_id": member.campaign_id,
+        "certificat": member.certificat,
+        "certificat_file": {
+            "uploaded": bool(certificat_file_name),
+            "filename": member.certificat_file_original_name if certificat_file_name else "",
+            "content_type": member.certificat_file_content_type if certificat_file_name else "",
+            "size": member.certificat_file_size if certificat_file_name else 0,
+            "uploaded_at": (
+                member.certificat_file_uploaded_at.isoformat()
+                if member.certificat_file_uploaded_at and certificat_file_name
+                else None
+            ),
+        },
+        "autorisation_parentale": member.autorisation_parentale,
+        "photo": member.photo,
+        "option_ia": member.option_ia,
+        "manual_review": member.manual_review,
+        "manual_review_label": "vérifié" if member.manual_review else "non vérifié",
+        "badge_owned": member.badge_owned,
+        "badge_ordered": member.badge_ordered,
+    }
+
+
+def _validate_certificat_upload(upload):
+    original_name = str(getattr(upload, "name", "")).strip()
+    extension = Path(original_name).suffix.lower()
+    content_type = str(getattr(upload, "content_type", "")).strip().lower()
+    size = int(getattr(upload, "size", 0) or 0)
+
+    allowed_extensions = set(getattr(settings, "MEMBER_CERTIFICAT_ALLOWED_EXTENSIONS", []))
+    allowed_types = set(getattr(settings, "MEMBER_CERTIFICAT_ALLOWED_CONTENT_TYPES", []))
+    max_size = int(getattr(settings, "MEMBER_CERTIFICAT_MAX_BYTES", 0) or 0)
+
+    if not original_name:
+        return "Uploaded file name is required."
+    if allowed_extensions and extension not in allowed_extensions:
+        return (
+            "Unsupported file extension. Allowed extensions: "
+            + ", ".join(sorted(allowed_extensions))
+            + "."
+        )
+    if allowed_types and content_type not in allowed_types:
+        return (
+            "Unsupported content type. Allowed content types: "
+            + ", ".join(sorted(allowed_types))
+            + "."
+        )
+    if max_size > 0 and size > max_size:
+        return f"File is too large. Maximum allowed size is {max_size} bytes."
+    return None
+
+
+def _build_member_certificat_fernet():
+    key = str(getattr(settings, "MEMBER_CERTIFICAT_ENCRYPTION_KEY", "")).strip()
+    if not key:
+        return None, "MEMBER_CERTIFICAT_ENCRYPTION_KEY must be configured."
+
+    try:
+        return Fernet(key.encode("utf-8")), None
+    except Exception:
+        return (
+            None,
+            "MEMBER_CERTIFICAT_ENCRYPTION_KEY is invalid. Expected a URL-safe base64 key.",
+        )
 
 
 @csrf_exempt
@@ -442,60 +536,130 @@ def campaign_members(request, campaign_id):
         )
 
         return JsonResponse(
-            {
-                "member": {
-                    "id": member.id,
-                    "first_name": member.first_name,
-                    "name": member.name,
-                    "ffck_licence": member.ffck_licence,
-                    "ffck_certificat": member.ffck_certificat,
-                    "ffck_certificat_expiration": member.ffck_certificat_expiration,
-                    "ffck_licence_type": member.ffck_licence_type,
-                    "helloasso_form_slug": member.helloasso_form_slug,
-                    "email": member.email,
-                    "created_at": member.created_at.isoformat(),
-                    "campaign_id": member.campaign_id,
-                    "certificat": member.certificat,
-                    "autorisation_parentale": member.autorisation_parentale,
-                    "photo": member.photo,
-                    "option_ia": member.option_ia,
-                    "manual_review": member.manual_review,
-                    "manual_review_label": "vérifié" if member.manual_review else "non vérifié",
-                    "badge_owned": member.badge_owned,
-                    "badge_ordered": member.badge_ordered,
-                }
-            },
+            {"member": _serialize_member(member)},
             status=201,
         )
 
-    members = Member.objects.filter(campaign=campaign).order_by("id")
-
-    data = [
-        {
-            "id": member.id,
-            "first_name": member.first_name,
-            "name": member.name,
-            "ffck_licence": member.ffck_licence,
-            "ffck_certificat": member.ffck_certificat,
-            "ffck_certificat_expiration": member.ffck_certificat_expiration,
-            "ffck_licence_type": member.ffck_licence_type,
-            "helloasso_form_slug": member.helloasso_form_slug,
-            "email": member.email,
-            "created_at": member.created_at.isoformat(),
-            "campaign_id": member.campaign_id,
-            "certificat": member.certificat,
-            "autorisation_parentale": member.autorisation_parentale,
-            "photo": member.photo,
-            "option_ia": member.option_ia,
-            "manual_review": member.manual_review,
-            "manual_review_label": "vérifié" if member.manual_review else "non vérifié",
-            "badge_owned": member.badge_owned,
-            "badge_ordered": member.badge_ordered,
-        }
-        for member in members
+    members = [
+        member
+        for member in Member.objects.filter(campaign=campaign).order_by("id")
+        if not member.is_deleted
     ]
 
+    data = [_serialize_member(member) for member in members]
+
     return JsonResponse({"members": data})
+
+
+@require_POST
+def campaign_member_certificat_upload(request, campaign_id, member_id):
+    _, member, error_response = _resolve_campaign_member(campaign_id, member_id)
+    if error_response is not None:
+        return error_response
+
+    upload = request.FILES.get("file")
+    if upload is None:
+        return JsonResponse({"error": "'file' is required as multipart upload."}, status=400)
+
+    validation_error = _validate_certificat_upload(upload)
+    if validation_error:
+        return JsonResponse({"error": validation_error}, status=400)
+
+    fernet, key_error = _build_member_certificat_fernet()
+    if key_error:
+        return JsonResponse({"error": key_error}, status=500)
+
+    raw_content = upload.read()
+    if not raw_content:
+        return JsonResponse({"error": "Uploaded file is empty."}, status=400)
+
+    encrypted_content = fernet.encrypt(raw_content)
+    old_file_name = member.certificat_file.name if member.certificat_file else ""
+    member.certificat_file.save(
+        f"{upload.name}.enc",
+        ContentFile(encrypted_content),
+        save=False,
+    )
+    member.certificat_file_original_name = str(getattr(upload, "name", "")).strip()
+    member.certificat_file_content_type = str(getattr(upload, "content_type", "")).strip().lower()
+    member.certificat_file_size = len(raw_content)
+    member.certificat_file_uploaded_at = timezone.now()
+    member.save(
+        update_fields=[
+            "certificat_file",
+            "certificat_file_original_name",
+            "certificat_file_content_type",
+            "certificat_file_size",
+            "certificat_file_uploaded_at",
+        ]
+    )
+
+    if old_file_name and old_file_name != member.certificat_file.name:
+        member.certificat_file.storage.delete(old_file_name)
+
+    return JsonResponse({"member": _serialize_member(member)})
+
+
+@require_GET
+def campaign_member_certificat_download(request, campaign_id, member_id):
+    _, member, error_response = _resolve_campaign_member(campaign_id, member_id)
+    if error_response is not None:
+        return error_response
+
+    if not member.certificat_file:
+        return JsonResponse({"error": "No uploaded certificate for this member."}, status=404)
+
+    fernet, key_error = _build_member_certificat_fernet()
+    if key_error:
+        return JsonResponse({"error": key_error}, status=500)
+
+    encrypted_content = member.certificat_file.read()
+    try:
+        decrypted_content = fernet.decrypt(encrypted_content)
+    except InvalidToken:
+        return JsonResponse(
+            {
+                "error": (
+                    "Failed to decrypt certificate file. "
+                    "Ensure MEMBER_CERTIFICAT_ENCRYPTION_KEY matches the upload key."
+                )
+            },
+            status=500,
+        )
+
+    download_name = member.certificat_file_original_name or Path(member.certificat_file.name).name
+    response = HttpResponse(
+        decrypted_content,
+        content_type=member.certificat_file_content_type or "application/octet-stream",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{download_name}"'
+    return response
+
+
+@require_http_methods(["DELETE"])
+def campaign_member_certificat_delete(request, campaign_id, member_id):
+    _, member, error_response = _resolve_campaign_member(campaign_id, member_id)
+    if error_response is not None:
+        return error_response
+
+    if not member.certificat_file:
+        return JsonResponse({"deleted": False, "reason": "no_file"})
+
+    member.certificat_file.delete(save=False)
+    member.certificat_file_original_name = ""
+    member.certificat_file_content_type = ""
+    member.certificat_file_size = 0
+    member.certificat_file_uploaded_at = None
+    member.save(
+        update_fields=[
+            "certificat_file",
+            "certificat_file_original_name",
+            "certificat_file_content_type",
+            "certificat_file_size",
+            "certificat_file_uploaded_at",
+        ]
+    )
+    return JsonResponse({"deleted": True})
 
 
 @require_POST
@@ -528,16 +692,20 @@ def campaign_members_bulk_delete(request, campaign_id):
     if not member_ids:
         return JsonResponse({"error": "No valid member id provided."}, status=400)
 
-    members_to_delete = list(
-        Member.objects.filter(campaign=campaign, id__in=member_ids).order_by("id")
-    )
+    members_to_delete = [
+        member
+        for member in Member.objects.filter(campaign=campaign, id__in=member_ids).order_by("id")
+        if not member.is_deleted
+    ]
     deleted_member_ids = [member.id for member in members_to_delete]
     if not deleted_member_ids:
         return JsonResponse(
             {"deleted_member_ids": [], "deleted_count": 0, "campaign_id": campaign.id}
         )
 
-    Member.objects.filter(id__in=deleted_member_ids, campaign=campaign).delete()
+    for member in members_to_delete:
+        member.is_deleted = True
+        member.save(update_fields=["is_deleted"])
 
     return JsonResponse(
         {
@@ -619,7 +787,11 @@ def campaign_manual_edition(request, campaign_id):
 
     members_by_id = {
         member.id: member
-        for member in Member.objects.filter(campaign=campaign, id__in=requested_ids).order_by("id")
+        for member in Member.objects.filter(
+            campaign=campaign,
+            id__in=requested_ids,
+        ).order_by("id")
+        if not member.is_deleted
     }
     updated_member_ids = []
 
@@ -762,6 +934,11 @@ def campaign_member_duplicate_suggestions(request):
         .select_related("member_left", "member_right", "recommended_master")
         .order_by("-similarity_score", "-created_at")
     )
+    suggestions = [
+        suggestion
+        for suggestion in suggestions_qs
+        if not suggestion.member_left.is_deleted and not suggestion.member_right.is_deleted
+    ]
 
     return JsonResponse(
         {
@@ -769,7 +946,7 @@ def campaign_member_duplicate_suggestions(request):
             "min_score": min_score,
             "generation": generation_summary,
             "suggestions": [
-                _serialize_duplicate_suggestion(suggestion) for suggestion in suggestions_qs
+                _serialize_duplicate_suggestion(suggestion) for suggestion in suggestions
             ],
         }
     )
@@ -803,11 +980,18 @@ def campaign_member_duplicate_merge(request):
             return JsonResponse({"error": "'keep_member_id' must be an integer."}, status=400)
 
     suggestion = (
-        MemberDuplicateSuggestion.objects.filter(id=suggestion_id, campaign=campaign)
+        MemberDuplicateSuggestion.objects.filter(
+            id=suggestion_id,
+            campaign=campaign,
+        )
         .select_related("member_left", "member_right", "recommended_master")
         .first()
     )
-    if suggestion is None:
+    if (
+        suggestion is None
+        or suggestion.member_left.is_deleted
+        or suggestion.member_right.is_deleted
+    ):
         return JsonResponse({"error": f"Suggestion {suggestion_id} not found."}, status=404)
 
     try:

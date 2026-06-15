@@ -135,6 +135,9 @@
     .icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: 6px; font-size: .7rem; line-height: 1; padding: 4px 6px; cursor: pointer; }
     .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
     .hint { margin: 0; color: var(--muted); font-size: .82rem; }
+    .cell-stack { display: inline-flex; align-items: center; gap: 8px; }
+    .cell-mini-btn { padding: 4px 8px; font-size: .78rem; border-radius: 7px; }
+    .cell-note { color: var(--muted); font-size: .78rem; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
     html[data-theme="dark"], body[data-theme="dark"] {
       --bg: oklch(17% 0.01 255);
       --surface: oklch(22% 0.01 255);
@@ -312,6 +315,7 @@
     const helloAssoApiKey = document.getElementById('helloAssoApiKey');
     const saveApiKey = document.getElementById('saveApiKey');
     const apiKeyStatus = document.getElementById('apiKeyStatus');
+    const certUploadInput = document.createElement('input');
     const campaignMonitor = document.getElementById('campaignMonitor');
     const tooltipButtons = [sortByName, deleteSelectedMembers, createMember, runFusion, refreshMembers].filter(Boolean);
     const CAMPAIGN_STORE_KEY = 'ffck:campaign';
@@ -331,6 +335,12 @@
     let isSyncingHorizontalScroll = false;
     const TOOLTIP_DELAY_MS = 1000;
     const tooltipTimers = new WeakMap();
+    let pendingCertUploadMemberId = null;
+
+    certUploadInput.type = 'file';
+    certUploadInput.accept = '.pdf,.jpg,.jpeg,.png';
+    certUploadInput.style.display = 'none';
+    document.body.appendChild(certUploadInput);
 
     function emitUiFilters() {
       if (!(window.parent && window.parent !== window)) return;
@@ -380,6 +390,24 @@
         button.addEventListener('mouseleave', () => hideDelayedTooltip(button));
         button.addEventListener('blur', () => hideDelayedTooltip(button));
         button.addEventListener('click', () => hideDelayedTooltip(button));
+      });
+
+      tbody.addEventListener('mouseover', (event) => {
+        const button = event.target.closest('.delayed-tooltip');
+        if (!button) return;
+        if (event.relatedTarget && button.contains(event.relatedTarget)) return;
+        showDelayedTooltip(button);
+      });
+      tbody.addEventListener('mouseout', (event) => {
+        const button = event.target.closest('.delayed-tooltip');
+        if (!button) return;
+        if (event.relatedTarget && button.contains(event.relatedTarget)) return;
+        hideDelayedTooltip(button);
+      });
+      tbody.addEventListener('click', (event) => {
+        const button = event.target.closest('.delayed-tooltip');
+        if (!button) return;
+        hideDelayedTooltip(button);
       });
     }
 
@@ -496,6 +524,9 @@
     }
 
     function mapMemberToRow(member) {
+      const certificatFile = member?.certificat_file && typeof member.certificat_file === 'object'
+        ? member.certificat_file
+        : {};
       const row = {
         member_id: Number(member.id),
         nom: member.name || '—',
@@ -506,6 +537,12 @@
         helloasso_form_slug: member.helloasso_form_slug || '',
         email: member.email || '—',
         certificat: member.certificat || '—',
+        certificat_file_uploaded: Boolean(certificatFile.uploaded),
+        certificat_file_name: String(certificatFile.filename || '').trim(),
+        certificat_file_uploaded_at:
+          typeof certificatFile.uploaded_at === 'string' && certificatFile.uploaded_at.trim()
+            ? certificatFile.uploaded_at
+            : null,
         autorisation_parentale: member.autorisation_parentale || '—',
         photo: member.photo || '—',
         option_ia: member.option_ia ? 'Oui' : 'Non',
@@ -523,6 +560,11 @@
     }
 
     function isMissingCertificat(value) {
+      if (value && typeof value === 'object') {
+        if (value.hasFileUpload) return false;
+        const normalized = String(value.link ?? '').trim();
+        return normalized === '' || normalized === '—';
+      }
       const normalized = String(value ?? '').trim();
       return normalized === '' || normalized === '—';
     }
@@ -563,7 +605,7 @@
     }
 
     function computeStatusForRow(row) {
-      if (isMissingCertificat(row.certificat)) return 'Bloquant';
+      if (isMissingCertificat({ link: row.certificat, hasFileUpload: row.certificat_file_uploaded })) return 'Bloquant';
       const review = String(row.manual_review || '').trim().toLowerCase();
       if (review !== 'vérifié') return 'À vérifier';
       return 'Conforme';
@@ -571,7 +613,7 @@
 
     function computeReasonForRow(row) {
       const reasons = [];
-      if (isMissingCertificat(row.certificat)) {
+      if (isMissingCertificat({ link: row.certificat, hasFileUpload: row.certificat_file_uploaded })) {
         reasons.push('Certificat manquant');
       }
       const review = String(row.manual_review || '').trim().toLowerCase();
@@ -764,6 +806,60 @@
         dateStyle: 'short',
         timeStyle: 'medium'
       }).format(safeDate);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function toRowFromApiMember(member) {
+      if (!member || typeof member !== 'object') return null;
+      return mapMemberToRow(member);
+    }
+
+    async function uploadCertificatForMember(memberId, file) {
+      const campaignId = findActiveCampaignId();
+      if (!Number.isFinite(Number(campaignId))) {
+        throw new Error('Campagne introuvable côté API.');
+      }
+      if (!Number.isFinite(Number(memberId))) {
+        throw new Error('Membre invalide.');
+      }
+      if (!file) {
+        throw new Error('Aucun fichier sélectionné.');
+      }
+
+      const csrfToken = readCookie('csrftoken');
+      const headers = {};
+      if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+      const form = new FormData();
+      form.append('file', file);
+
+      const response = await fetch(`/api/campaigns/${campaignId}/members/${memberId}/certificat-file/`, {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || ('Erreur HTTP ' + response.status));
+      }
+
+      const member = payload?.member && typeof payload.member === 'object' ? payload.member : null;
+      const nextRow = toRowFromApiMember(member);
+      if (!nextRow) return;
+
+      const data = currentCampaignData();
+      if (!data || !Array.isArray(data.rows)) return;
+      const idx = data.rows.findIndex((row) => Number(row?.member_id) === Number(memberId));
+      if (idx < 0) return;
+      data.rows[idx] = nextRow;
+      refreshRowStatus(data.rows[idx]);
     }
 
     function renderSaveChangesState() {
@@ -1147,11 +1243,28 @@
           const isLinkColumn = col.key === 'certificat' || col.key === 'autorisation_parentale' || col.key === 'photo';
           const isStatusBadgeColumn = col.key === 'statut' || col.key === 'manual_review';
           const isUrl = typeof displayRaw === 'string' && /^https?:\/\//i.test(displayRaw.trim());
-          const value = isStatusBadgeColumn
-            ? '<span class="badge ' + (col.key === 'statut' ? statusClass(displayRaw) : manualReviewClass(displayRaw)) + '">' + displayRaw + '</span>'
-            : (isLinkColumn && isUrl
-              ? '<a href="' + displayRaw + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>'
-              : displayRaw);
+          let value = '';
+          if (isStatusBadgeColumn) {
+            value = '<span class="badge ' + (col.key === 'statut' ? statusClass(displayRaw) : manualReviewClass(displayRaw)) + '">' + displayRaw + '</span>';
+          } else if (col.key === 'certificat') {
+            const hasUrl = typeof displayRaw === 'string' && /^https?:\/\//i.test(displayRaw.trim());
+            const hasFile = Boolean(r.certificat_file_uploaded);
+            const fileName = String(r.certificat_file_name || '').trim();
+            if (hasUrl) {
+              value = '<a href="' + displayRaw + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>';
+            } else if (hasFile) {
+              value = '<div class="cell-stack">'
+                + '<button type="button" class="btn-subtle cell-mini-btn cert-download-btn" data-member-id="' + Number(r.member_id) + '">Télécharger</button>'
+                + '<span class="cell-note" title="' + escapeHtml(fileName || 'Certificat uploadé') + '">' + escapeHtml(fileName || 'Certificat uploadé') + '</span>'
+                + '</div>';
+            } else {
+              value = '<button type="button" class="btn-subtle cell-mini-btn cert-upload-btn delayed-tooltip" data-member-id="' + Number(r.member_id) + '" aria-label="Uploader un certificat" data-tooltip="Uploader un certificat"><span aria-hidden="true">📤</span></button>';
+            }
+          } else if (isLinkColumn && isUrl) {
+            value = '<a href="' + displayRaw + '" target="_blank" rel="noopener noreferrer">Ouvrir</a>';
+          } else {
+            value = displayRaw;
+          }
           const editable = (isLinkColumn || col.key === 'statut' || col.key === 'raison' || col.key === 'manual_review') ? 'false' : 'true';
           return '<td contenteditable="' + editable + '" data-row="' + rowIdx + '" data-key="' + col.key + '">' + value + '</td>';
         }).join('');
@@ -1194,6 +1307,29 @@
     });
 
     tbody.addEventListener('click', (event) => {
+      const uploadBtn = event.target.closest('.cert-upload-btn');
+      if (uploadBtn) {
+        const memberId = Number(uploadBtn.dataset.memberId);
+        if (!Number.isFinite(memberId)) return;
+        pendingCertUploadMemberId = memberId;
+        certUploadInput.value = '';
+        certUploadInput.click();
+        return;
+      }
+
+      const downloadBtn = event.target.closest('.cert-download-btn');
+      if (downloadBtn) {
+        const memberId = Number(downloadBtn.dataset.memberId);
+        const campaignId = findActiveCampaignId();
+        if (!Number.isFinite(memberId) || !Number.isFinite(Number(campaignId))) return;
+        window.open(
+          `/api/campaigns/${campaignId}/members/${memberId}/certificat-file/download/`,
+          '_blank',
+          'noopener',
+        );
+        return;
+      }
+
       const cell = event.target.closest('td[data-key="manual_review"]');
       if (!cell) return;
       const rows = filteredRows();
@@ -1252,6 +1388,19 @@
       }
       renderRows();
     }, true);
+
+    certUploadInput.addEventListener('change', async () => {
+      const file = certUploadInput.files && certUploadInput.files[0] ? certUploadInput.files[0] : null;
+      const memberId = Number(pendingCertUploadMemberId);
+      pendingCertUploadMemberId = null;
+      if (!file || !Number.isFinite(memberId)) return;
+      try {
+        await uploadCertificatForMember(memberId, file);
+        renderRows();
+      } catch (error) {
+        window.alert(error?.message || 'Upload du certificat impossible.');
+      }
+    });
 
     search.addEventListener('input', () => {
       renderRows();
