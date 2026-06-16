@@ -3,7 +3,6 @@ from django_cryptography.fields import encrypt
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("api", "0019_authrevokedtoken"),
     ]

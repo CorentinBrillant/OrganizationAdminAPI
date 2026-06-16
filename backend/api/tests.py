@@ -718,7 +718,9 @@ class FileBlobEncryptionTests(TestCase):
             file_blob=raw_blob,
         )
 
-        stored_blob = FfckExport.objects.filter(id=ffck_export.id).values_list("file_blob", flat=True).first()
+        stored_blob = (
+            FfckExport.objects.filter(id=ffck_export.id).values_list("file_blob", flat=True).first()
+        )
         self.assertIsNotNone(stored_blob)
         self.assertNotEqual(bytes(stored_blob), raw_blob)
         self.assertTrue(bytes(stored_blob).startswith(FILE_BLOB_ENCRYPTION_PREFIX))
@@ -746,7 +748,11 @@ class FileBlobEncryptionTests(TestCase):
             file_blob=raw_blob,
         )
 
-        stored_blob = BadgeImport.objects.filter(id=badge_import.id).values_list("file_blob", flat=True).first()
+        stored_blob = (
+            BadgeImport.objects.filter(id=badge_import.id)
+            .values_list("file_blob", flat=True)
+            .first()
+        )
         self.assertIsNotNone(stored_blob)
         self.assertNotEqual(bytes(stored_blob), raw_blob)
         self.assertTrue(bytes(stored_blob).startswith(FILE_BLOB_ENCRYPTION_PREFIX))

@@ -52,13 +52,19 @@ def _encrypt_rows(apps, schema_editor):
     BadgeImport = apps.get_model("api", "BadgeImport")
 
     for model in (FfckExport, BadgeImport):
-        qs = model.objects.using(schema_editor.connection.alias).exclude(file_blob__isnull=True).only("id", "file_blob")
+        qs = (
+            model.objects.using(schema_editor.connection.alias)
+            .exclude(file_blob__isnull=True)
+            .only("id", "file_blob")
+        )
         for row in qs.iterator(chunk_size=200):
             raw = _coerce_bytes(row.file_blob)
             if not raw or _is_encrypted(raw):
                 continue
             encrypted = FILE_BLOB_ENCRYPTION_PREFIX + fernet.encrypt(raw)
-            model.objects.using(schema_editor.connection.alias).filter(id=row.id).update(file_blob=encrypted)
+            model.objects.using(schema_editor.connection.alias).filter(id=row.id).update(
+                file_blob=encrypted
+            )
 
 
 def _decrypt_rows(apps, schema_editor):
@@ -67,7 +73,11 @@ def _decrypt_rows(apps, schema_editor):
     BadgeImport = apps.get_model("api", "BadgeImport")
 
     for model in (FfckExport, BadgeImport):
-        qs = model.objects.using(schema_editor.connection.alias).exclude(file_blob__isnull=True).only("id", "file_blob")
+        qs = (
+            model.objects.using(schema_editor.connection.alias)
+            .exclude(file_blob__isnull=True)
+            .only("id", "file_blob")
+        )
         for row in qs.iterator(chunk_size=200):
             raw = _coerce_bytes(row.file_blob)
             if not raw or not _is_encrypted(raw):
@@ -76,12 +86,15 @@ def _decrypt_rows(apps, schema_editor):
             try:
                 decrypted = fernet.decrypt(token)
             except InvalidToken as exc:
-                raise ValueError("Unable to decrypt stored encrypted file_blob during rollback.") from exc
-            model.objects.using(schema_editor.connection.alias).filter(id=row.id).update(file_blob=decrypted)
+                raise ValueError(
+                    "Unable to decrypt stored encrypted file_blob during rollback."
+                ) from exc
+            model.objects.using(schema_editor.connection.alias).filter(id=row.id).update(
+                file_blob=decrypted
+            )
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("api", "0024_alter_member_certificat_file_size_plain"),
     ]
