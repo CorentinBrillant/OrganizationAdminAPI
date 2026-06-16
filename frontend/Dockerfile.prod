@@ -12,7 +12,7 @@ COPY . .
 ARG VITE_API_AUTH_TOKEN=""
 ENV VITE_API_AUTH_TOKEN=${VITE_API_AUTH_TOKEN}
 
-RUN npm run build
+RUN npm run build:prod
 
 RUN mkdir -p /frontend-dist && chown -R app:app /app /frontend-dist
 
