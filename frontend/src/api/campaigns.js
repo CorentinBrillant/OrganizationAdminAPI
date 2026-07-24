@@ -164,6 +164,39 @@ export async function fetchCampaignFfckLatestRows(campaignId, options = {}) {
   }
 }
 
+export async function importCampaignFfckExport(campaignId, options = {}) {
+  const normalizedCampaignId = Number(campaignId)
+  if (!Number.isFinite(normalizedCampaignId)) {
+    throw new Error('campaignId must be a number')
+  }
+
+  const response = await fetch(
+    `/api/federation/extract-excel/?campaignId=${encodeURIComponent(String(normalizedCampaignId))}`,
+    {
+      headers: withApiAuthHeaders(),
+      signal: options.signal,
+    },
+  )
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload?.error || `Erreur HTTP ${response.status}`)
+  }
+
+  // Consume the download body so browser connections can be released before refreshing the imported rows.
+  await response.arrayBuffer()
+  const contentDisposition = response.headers.get('Content-Disposition')
+  const utf8Filename = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const filename = utf8Filename
+    ? decodeURIComponent(utf8Filename)
+    : contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1] || 'export.xlsx'
+  const rowsCount = Number(response.headers.get('X-FFCK-Rows-Count'))
+
+  return {
+    filename,
+    rowsCount: Number.isFinite(rowsCount) ? rowsCount : null,
+  }
+}
+
 export async function saveCampaignManualEdition(campaignId, members) {
   const normalizedCampaignId = Number(campaignId)
   if (!Number.isFinite(normalizedCampaignId)) {
@@ -234,11 +267,11 @@ export async function fetchHelloAssoMembershipForms() {
   const response = await fetch('/api/helloasso/membership-forms/', {
     headers: withApiAuthHeaders(),
   })
+  const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    throw new Error(payload?.error || `HTTP ${response.status}`)
   }
 
-  const payload = await response.json()
   const forms = Array.isArray(payload?.forms) ? payload.forms : []
   return forms
     .map((form) => {

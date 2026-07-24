@@ -7,11 +7,11 @@ const { withApiAuthHeadersMock } = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock('../auth/token', () => ({
+vi.mock('../../auth/token', () => ({
   withApiAuthHeaders: withApiAuthHeadersMock,
 }))
 
-import { checkSession, loginWithPassword, logoutSession } from './auth'
+import { checkSession, loginWithPassword, logoutSession } from '../../api/auth'
 
 describe('auth api', () => {
   beforeEach(() => {

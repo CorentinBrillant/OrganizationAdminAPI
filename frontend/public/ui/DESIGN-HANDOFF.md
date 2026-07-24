@@ -67,7 +67,6 @@ For responsive web exports, treat these as a modern breakpoint system for one ad
 - `index.html`
 - `monitoring-campagnes.html`
 - `source-ffck.html`
-- `source-helloasso.html`
 - `suivi-inscriptions-ffck-prototype.html`
 
 ## Styles

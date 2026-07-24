@@ -1,0 +1,48 @@
+.badges-source {
+  height: 100%;
+  overflow: auto;
+  padding: 18px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.badges-source-panel,
+.badges-source-kpis article,
+.badges-source-table {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.badges-source-head {
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.badges-source-title { margin: 0; font-size: 1.25rem; letter-spacing: -0.02em; }
+.badges-source-meta { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+.badges-source-meta.error { color: #ef8a82; }
+.badges-source-toolbar { padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; }
+.badges-source-import, .badges-source-toolbar input { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; background: var(--surface); color: var(--fg); }
+.badges-source-import { background: color-mix(in oklch, var(--accent) 16%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; cursor: pointer; }
+.badges-source-import:disabled { opacity: 0.35; cursor: not-allowed; }
+.badges-source-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.badges-source-kpis article { padding: 12px; }
+.badges-source-kpis span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.badges-source-kpis strong { display: block; margin-top: 6px; font-size: 1.3rem; font-family: ui-monospace, Menlo, monospace; }
+.badges-source-table { overflow: auto; }
+.badges-source-table table { width: 100%; border-collapse: collapse; }
+.badges-source-table th, .badges-source-table td { border-bottom: 1px solid var(--border); padding: 10px; text-align: left; font-size: 0.9rem; white-space: nowrap; }
+.badges-source-table th { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.badges-source-pill { display: inline-block; padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.72rem; }
+.badges-source-pill.ok { color: #52c78d; }
+.badges-source-pill.warn { color: #e0b86d; }
+
+@media (max-width: 900px) {
+  .badges-source-kpis { grid-template-columns: 1fr; }
+}

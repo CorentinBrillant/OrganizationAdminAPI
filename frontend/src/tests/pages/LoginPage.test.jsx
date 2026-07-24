@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import LoginPage from './LoginPage'
+import LoginPage from '../../pages/LoginPage'
 
 describe('LoginPage', () => {
   it('affiche une erreur de validation si login ou mot de passe manquant', async () => {

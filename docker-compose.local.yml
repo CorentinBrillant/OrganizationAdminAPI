@@ -26,6 +26,8 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      # Corporate root CA is mounted only for local HTTPS interception.
+      - /usr/local/share/ca-certificates/arstxd-root-ca.crt:/usr/local/share/ca-certificates/arstxd-root-ca.crt:ro
     environment:
       DJANGO_DEBUG: "1"
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,backend"

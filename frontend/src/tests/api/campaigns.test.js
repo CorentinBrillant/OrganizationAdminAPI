@@ -7,16 +7,18 @@ const { withApiAuthHeadersMock } = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock('../auth/token', () => ({
+vi.mock('../../auth/token', () => ({
   withApiAuthHeaders: withApiAuthHeadersMock,
 }))
 
 import {
   createCampaign,
+  importCampaignFfckExport,
   fetchCampaignMembers,
   fetchCampaigns,
+  fetchHelloAssoMembershipForms,
   saveCampaignManualEdition,
-} from './campaigns'
+} from '../../api/campaigns'
 
 async function clearTestCookie(name) {
   if (globalThis.cookieStore && typeof globalThis.cookieStore.delete === 'function') {
@@ -120,5 +122,44 @@ describe('campaigns api', () => {
   it('rejette la sauvegarde manuelle si campaignId n est pas un nombre', async () => {
     await expect(saveCampaignManualEdition('not-a-number', [])).rejects.toThrow('campaignId must be a number')
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('propage le détail de l’erreur HelloAsso', async () => {
+    global.fetch.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'HelloAsso network error: certificate verify failed' }),
+    })
+
+    await expect(fetchHelloAssoMembershipForms()).rejects.toThrow(
+      'HelloAsso network error: certificate verify failed',
+    )
+  })
+
+  it('importe un export FFCK authentifié et retourne ses métadonnées', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      headers: new Headers({
+        'Content-Disposition': 'attachment; filename="licences.xlsx"',
+        'X-FFCK-Rows-Count': '17',
+      }),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    })
+
+    await expect(importCampaignFfckExport(42)).resolves.toEqual({ filename: 'licences.xlsx', rowsCount: 17 })
+    expect(global.fetch).toHaveBeenCalledWith('/api/federation/extract-excel/?campaignId=42', {
+      headers: { Authorization: 'Bearer test-token' },
+      signal: undefined,
+    })
+  })
+
+  it('propage le détail de l’erreur FFCK', async () => {
+    global.fetch.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'FFCK extranet unavailable' }),
+    })
+
+    await expect(importCampaignFfckExport(42)).rejects.toThrow('FFCK extranet unavailable')
   })
 })

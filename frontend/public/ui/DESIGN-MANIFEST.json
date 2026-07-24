@@ -9,7 +9,6 @@
       "index.html",
       "monitoring-campagnes.html",
       "source-ffck.html",
-      "source-helloasso.html",
       "suivi-inscriptions-ffck-prototype.html"
     ],
     "html": [
@@ -18,7 +17,6 @@
       "index.html",
       "monitoring-campagnes.html",
       "source-ffck.html",
-      "source-helloasso.html",
       "suivi-inscriptions-ffck-prototype.html"
     ],
     "css": [],
@@ -48,11 +46,6 @@
     },
     {
       "file": "source-ffck.html",
-      "role": "screen",
-      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
-    },
-    {
-      "file": "source-helloasso.html",
       "role": "screen",
       "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
     },
