@@ -2,7 +2,10 @@ import hashlib
 import ipaddress
 import json
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from pathlib import Path
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
@@ -12,6 +15,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
@@ -72,6 +76,85 @@ def _request_ip_address(request):
         return str(ipaddress.ip_address(str(candidate)))
     except ValueError:
         return None
+
+
+def _xlsx_column_name(index: int) -> str:
+    name = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _xlsx_text(value) -> str:
+    text = str(value if value is not None else "")
+    text = "".join(char for char in text if ord(char) >= 32 or char in "\t\n\r")
+    if text.startswith(("=", "+", "-", "@")):
+        text = f"'{text}"
+    return escape(text)
+
+
+def _build_xlsx(headers: list[str], rows: list[list[str]]) -> bytes:
+    worksheet_rows = []
+    for row_index, values in enumerate([headers, *rows], start=1):
+        cells = "".join(
+            (
+                f'<c r="{_xlsx_column_name(column_index)}{row_index}" t="inlineStr">'
+                f'<is><t xml:space="preserve">{_xlsx_text(value)}</t></is></c>'
+            )
+            for column_index, value in enumerate(values, start=1)
+        )
+        worksheet_rows.append(f'<row r="{row_index}">{cells}</row>')
+
+    worksheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(worksheet_rows)}</sheetData>'
+        "</worksheet>"
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Inscriptions" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", root_rels_xml)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", worksheet_xml)
+    return output.getvalue()
 
 
 def _extract_items(payload):
@@ -527,6 +610,34 @@ def campaign_settings(request, campaign_id):
             }
         }
     )
+
+
+@require_POST
+def campaign_members_export(request, campaign_id):
+    get_object_or_404(Campaign, id=campaign_id)
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    headers = payload.get("headers") if isinstance(payload, dict) else None
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(headers, list) or not headers or not isinstance(rows, list):
+        return JsonResponse({"error": "'headers' and 'rows' are required."}, status=400)
+    if len(headers) > 30 or len(rows) > 10000:
+        return JsonResponse({"error": "Export exceeds the allowed size."}, status=400)
+    if not all(isinstance(header, str) and header.strip() for header in headers):
+        return JsonResponse({"error": "Export headers are invalid."}, status=400)
+    if any(not isinstance(row, list) or len(row) != len(headers) for row in rows):
+        return JsonResponse({"error": "Export rows are invalid."}, status=400)
+
+    content = _build_xlsx(headers, rows)
+    response = HttpResponse(
+        content,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="inscriptions-{campaign_id}.xlsx"'
+    return response
 
 
 @require_http_methods(["GET", "POST"])

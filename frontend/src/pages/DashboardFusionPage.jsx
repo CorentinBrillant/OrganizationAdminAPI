@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
 import { withApiAuthHeaders } from "../auth/token";
+import { exportCampaignMembers } from "../api/campaigns";
 import {
 	loadCampaignMembers,
 	saveCampaignMembersManualEdition,
@@ -136,6 +137,13 @@ function memberToRow(member) {
 		helloasso_form_slug: member?.helloasso_form_slug || "",
 	};
 	return { ...row, statut: getRowStatus(row), raison: getRowReason(row) };
+}
+
+function exportRowValue(row, key) {
+	if (key === "certificat") {
+		return row.certificat || row.certificat_file_name || "—";
+	}
+	return row[key] ?? "";
 }
 
 function rowToPatch(row) {
@@ -551,6 +559,31 @@ export default function DashboardFusionPage() {
 			).unwrap();
 		} catch (error) {
 			setMessage(error?.message || "Impossible de supprimer la sélection.");
+		} finally {
+			setBusyAction("");
+		}
+	};
+
+	const exportVisibleRows = async () => {
+		if (!Number.isFinite(Number(activeCampaignId)) || !visibleRows.length) return;
+		setBusyAction("export");
+		setMessage("");
+		try {
+			const result = await exportCampaignMembers(activeCampaignId, {
+				headers: columns.map((column) => column.label),
+				rows: visibleRows.map((row) =>
+					columns.map((column) => exportRowValue(row, column.key)),
+				),
+			});
+			const url = URL.createObjectURL(result.blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = result.filename;
+			link.click();
+			URL.revokeObjectURL(url);
+			setMessage(`${visibleRows.length} ligne(s) exportée(s) au format XLSX.`);
+		} catch (error) {
+			setMessage(error?.message || "Impossible d’exporter le tableau.");
 		} finally {
 			setBusyAction("");
 		}
@@ -1012,6 +1045,15 @@ export default function DashboardFusionPage() {
 								title="Trier par nom"
 							>
 								{ascending ? "A-Z" : "Z-A"}
+							</button>
+							<button
+								type="button"
+								className="btn-subtle"
+								disabled={!visibleRows.length || busyAction === "export"}
+								onClick={exportVisibleRows}
+								title="Exporter les lignes affichées au format XLSX"
+							>
+								{busyAction === "export" ? "Export..." : "Exporter XLSX"}
 							</button>
 							<button
 								type="button"

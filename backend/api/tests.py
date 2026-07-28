@@ -246,6 +246,32 @@ class ApiAuthenticationTests(TestCase):
         self.assertEqual(after_logout.status_code, 401)
 
 
+class CampaignMemberExportTests(AuthenticatedApiTestCase):
+    def test_export_members_returns_xlsx_with_visible_table_values(self):
+        campaign = Campaign.objects.create(
+            title="Campagne 2026",
+            status="active",
+            helloasso_api_key="",
+        )
+
+        response = self.client.post(
+            f"/api/campaigns/{campaign.id}/members/export/",
+            data={"headers": ["Nom", "Statut"], "rows": [["Durand", "Conforme"]]},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(f"inscriptions-{campaign.id}.xlsx", response["Content-Disposition"])
+        with zipfile.ZipFile(BytesIO(response.content)) as archive:
+            worksheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        self.assertIn("Nom", worksheet)
+        self.assertIn("Durand", worksheet)
+
+
 class HelloAssoMemberSyncServiceTests(TestCase):
     def setUp(self):
         self.campaign = Campaign.objects.create(

@@ -13,6 +13,7 @@ vi.mock('../../auth/token', () => ({
 
 import {
   createCampaign,
+  exportCampaignMembers,
   importCampaignFfckExport,
   fetchCampaignMembers,
   fetchCampaigns,
@@ -117,6 +118,29 @@ describe('campaigns api', () => {
 
     expect(result).toEqual([])
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('exporte les lignes affichées en XLSX avec le jeton CSRF', async () => {
+    await setTestCookie('csrftoken', 'csrf-value')
+    const blob = new Blob(['xlsx'])
+    global.fetch.mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'Content-Disposition': 'attachment; filename="inscriptions-42.xlsx"' }),
+      blob: async () => blob,
+    })
+
+    await expect(
+      exportCampaignMembers(42, { headers: ['Nom'], rows: [['Durand']] }),
+    ).resolves.toEqual({ blob, filename: 'inscriptions-42.xlsx' })
+    expect(global.fetch).toHaveBeenCalledWith('/api/campaigns/42/members/export/', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-token',
+        'Content-Type': 'application/json',
+        'X-CSRFToken': 'csrf-value',
+      },
+      body: JSON.stringify({ headers: ['Nom'], rows: [['Durand']] }),
+    })
   })
 
   it('rejette la sauvegarde manuelle si campaignId n est pas un nombre', async () => {

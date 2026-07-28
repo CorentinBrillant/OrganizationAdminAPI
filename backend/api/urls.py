@@ -17,6 +17,7 @@ from .views import (
     campaign_member_duplicate_suggestions,
     campaign_members,
     campaign_members_bulk_delete,
+    campaign_members_export,
     campaign_settings,
     campaigns,
     federation_extranet_extract_excel,
@@ -49,6 +50,11 @@ urlpatterns = [
         "campaigns/<int:campaign_id>/members/",
         _protected(campaign_members),
         name="campaign-members",
+    ),
+    path(
+        "campaigns/<int:campaign_id>/members/export/",
+        _protected(campaign_members_export),
+        name="campaign-members-export",
     ),
     path(
         "campaigns/<int:campaign_id>/members/<int:member_id>/certificat-file/",

@@ -131,6 +131,31 @@ export async function fetchCampaignMembers(campaignId, options = {}) {
   }))
 }
 
+export async function exportCampaignMembers(campaignId, { headers, rows }) {
+  const normalizedCampaignId = Number(campaignId)
+  if (!Number.isFinite(normalizedCampaignId)) {
+    throw new Error('campaignId must be a number')
+  }
+
+  const csrfToken = readCookie('csrftoken')
+  const requestHeaders = withApiAuthHeaders({ 'Content-Type': 'application/json' })
+  if (csrfToken) requestHeaders['X-CSRFToken'] = csrfToken
+
+  const response = await fetch(`/api/campaigns/${normalizedCampaignId}/members/export/`, {
+    method: 'POST',
+    headers: requestHeaders,
+    body: JSON.stringify({ headers, rows }),
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload?.error || `HTTP ${response.status}`)
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition')
+  const filename = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1] || 'inscriptions.xlsx'
+  return { blob: await response.blob(), filename }
+}
+
 export async function fetchCampaignFfckLatestRows(campaignId, options = {}) {
   const normalizedCampaignId = Number(campaignId)
   if (!Number.isFinite(normalizedCampaignId)) {
