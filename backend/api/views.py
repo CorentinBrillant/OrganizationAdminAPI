@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -6,15 +7,17 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from .auth import create_user_token, require_api_token, revoke_token
 from .models import (
     BadgeImport,
     BadgeImportRow,
@@ -25,11 +28,12 @@ from .models import (
     HelloAssoItem,
     Member,
     MemberDuplicateSuggestion,
+    UserLogin,
 )
-from .services.helloasso_service import (
-    HelloAssoAPIError,
-    HelloAssoConfigError,
-    HelloAssoService,
+from .services.badge_import_service import (
+    BadgeExcelExtraction,
+    BadgeImportError,
+    BadgeImportService,
 )
 from .services.federation_extranet_service import (
     FederationExtranetAuthError,
@@ -38,10 +42,10 @@ from .services.federation_extranet_service import (
     FederationExtranetService,
 )
 from .services.ffck_export_import_service import FfckExportImportError, FfckExportImportService
-from .services.badge_import_service import (
-    BadgeExcelExtraction,
-    BadgeImportError,
-    BadgeImportService,
+from .services.helloasso_service import (
+    HelloAssoAPIError,
+    HelloAssoConfigError,
+    HelloAssoService,
 )
 from .services.member_dedup_service import MemberDedupService
 from .services.member_sync_service import (
@@ -49,7 +53,6 @@ from .services.member_sync_service import (
     FfckMemberSyncService,
     HelloAssoMemberSyncService,
 )
-from .auth import create_user_token, require_api_token, revoke_token
 
 
 def _nested_get(obj, *keys):
@@ -61,6 +64,14 @@ def _nested_get(obj, *keys):
         if current is None:
             return None
     return current
+
+
+def _request_ip_address(request):
+    candidate = request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR")
+    try:
+        return str(ipaddress.ip_address(str(candidate)))
+    except ValueError:
+        return None
 
 
 def _extract_items(payload):
@@ -321,6 +332,12 @@ def auth_login(request):
     if user is None or not getattr(user, "is_active", False):
         return JsonResponse({"error": "Invalid credentials."}, status=401)
 
+    UserLogin.objects.create(
+        user=user,
+        username=user.get_username(),
+        ip_address=_request_ip_address(request),
+        user_agent=str(request.META.get("HTTP_USER_AGENT", ""))[:512],
+    )
     token = create_user_token(user)
     ttl = int(getattr(settings, "API_AUTH_TOKEN_TTL_SECONDS", 3600))
 
@@ -354,6 +371,44 @@ def auth_session(request):
             ),
         }
     )
+
+
+@require_POST
+@require_api_token
+def auth_change_password(request):
+    if getattr(request, "auth_via", "") != "user_token":
+        return JsonResponse(
+            {"error": "Password changes require an authenticated user session."}, status=403
+        )
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    current_password = payload.get("current_password")
+    new_password = payload.get("new_password")
+    new_password_confirmation = payload.get("new_password_confirmation")
+    if not all(isinstance(value, str) and value for value in (current_password, new_password)):
+        return JsonResponse({"error": "Current and new passwords are required."}, status=400)
+    if new_password != new_password_confirmation:
+        return JsonResponse({"error": "New passwords do not match."}, status=400)
+
+    user = getattr(request, "auth_user", None)
+    if user is None or not user.check_password(current_password):
+        return JsonResponse({"error": "Current password is incorrect."}, status=400)
+
+    try:
+        validate_password(new_password, user=user)
+    except ValidationError as exc:
+        return JsonResponse({"error": " ".join(exc.messages)}, status=400)
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    return JsonResponse({"password_changed": True})
 
 
 @require_POST

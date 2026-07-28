@@ -1,5 +1,15 @@
 import { withApiAuthHeaders } from '../auth/token'
 
+function withCsrfHeaders(headers) {
+  const csrfToken = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('csrftoken='))
+    ?.slice('csrftoken='.length)
+
+  return csrfToken ? { ...headers, 'X-CSRFToken': decodeURIComponent(csrfToken) } : headers
+}
+
 export async function loginWithPassword({ username, password }) {
   const response = await fetch('/api/auth/login/', {
     method: 'POST',
@@ -40,10 +50,30 @@ export async function checkSession() {
   }
 }
 
+export async function changePassword({ currentPassword, newPassword, newPasswordConfirmation }) {
+  const response = await fetch('/api/auth/password/', {
+    method: 'POST',
+    headers: withCsrfHeaders(withApiAuthHeaders({ 'Content-Type': 'application/json' })),
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      new_password_confirmation: newPasswordConfirmation,
+    }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const message = typeof payload?.error === 'string' ? payload.error : `HTTP ${response.status}`
+    throw new Error(message)
+  }
+
+  return { passwordChanged: Boolean(payload?.password_changed) }
+}
+
 export async function logoutSession() {
   const response = await fetch('/api/auth/logout/', {
     method: 'POST',
-    headers: withApiAuthHeaders({ 'Content-Type': 'application/json' }),
+    headers: withCsrfHeaders(withApiAuthHeaders({ 'Content-Type': 'application/json' })),
     body: JSON.stringify({}),
   })
 

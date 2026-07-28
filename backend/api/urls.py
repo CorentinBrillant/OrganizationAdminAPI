@@ -2,6 +2,7 @@ from django.urls import path
 
 from .auth import require_api_token
 from .views import (
+    auth_change_password,
     auth_login,
     auth_logout,
     auth_session,
@@ -12,18 +13,18 @@ from .views import (
     campaign_member_certificat_delete,
     campaign_member_certificat_download,
     campaign_member_certificat_upload,
-    campaign_settings,
     campaign_member_duplicate_merge,
     campaign_member_duplicate_suggestions,
     campaign_members,
     campaign_members_bulk_delete,
+    campaign_settings,
     campaigns,
+    federation_extranet_extract_excel,
     ffck_latest_rows,
     ffck_sync_campaign_members,
-    federation_extranet_extract_excel,
     helloasso_import_campaign,
-    helloasso_membership_forms,
     helloasso_latest_items,
+    helloasso_membership_forms,
     helloasso_sync_campaign_members,
     sync_campaign_members,
 )
@@ -36,6 +37,7 @@ def _protected(view):
 urlpatterns = [
     path("auth/login/", auth_login, name="auth-login"),
     path("auth/session/", _protected(auth_session), name="auth-session"),
+    path("auth/password/", _protected(auth_change_password), name="auth-change-password"),
     path("auth/logout/", _protected(auth_logout), name="auth-logout"),
     path("campaigns/", _protected(campaigns), name="campaigns"),
     path(

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
+import { changePassword } from '../api/auth'
 import { fetchHelloAssoMembershipForms, updateCampaignSettings } from '../api/campaigns'
 import {
   createCampaign,
@@ -22,6 +23,11 @@ export default function SettingsCampagnePage({ user = null, onLogout = null }) {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [membershipForms, setMembershipForms] = useState([])
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
 
   const selectedCampaign = useMemo(() => {
     const normalizedCampaignId = Number(activeCampaignId)
@@ -87,6 +93,34 @@ export default function SettingsCampagnePage({ user = null, onLogout = null }) {
       })
   }
 
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault()
+    if (changingPassword) return
+
+    if (!user?.name) {
+      setPasswordError('Le changement de mot de passe requiert une session utilisateur.')
+      return
+    }
+    if (newPassword !== newPasswordConfirmation) {
+      setPasswordError('Les nouveaux mots de passe ne correspondent pas.')
+      return
+    }
+
+    setChangingPassword(true)
+    setPasswordError('')
+    try {
+      await changePassword({ currentPassword, newPassword, newPasswordConfirmation })
+      setCurrentPassword('')
+      setNewPassword('')
+      setNewPasswordConfirmation('')
+      await onLogout?.()
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : 'Échec du changement de mot de passe.')
+    } finally {
+      setChangingPassword(false)
+    }
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     if (saving) return
@@ -131,6 +165,52 @@ export default function SettingsCampagnePage({ user = null, onLogout = null }) {
         <button type="button" className="btn-subtle" onClick={onLogout} disabled={!onLogout}>
           Se déconnecter
         </button>
+        <form className="settings-campaign-password" onSubmit={handlePasswordSubmit}>
+          <h3>Changer le mot de passe</h3>
+          <p className="micro">Cette action déconnectera toutes vos sessions actives.</p>
+          <label className="settings-campaign-field" htmlFor="currentPassword">
+            Mot de passe actuel
+          </label>
+          <input
+            id="currentPassword"
+            type="password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            autoComplete="current-password"
+            required
+            disabled={changingPassword || !user?.name}
+          />
+          <label className="settings-campaign-field" htmlFor="newPassword">
+            Nouveau mot de passe
+          </label>
+          <input
+            id="newPassword"
+            type="password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            autoComplete="new-password"
+            required
+            disabled={changingPassword || !user?.name}
+          />
+          <label className="settings-campaign-field" htmlFor="newPasswordConfirmation">
+            Confirmer le nouveau mot de passe
+          </label>
+          <input
+            id="newPasswordConfirmation"
+            type="password"
+            value={newPasswordConfirmation}
+            onChange={(event) => setNewPasswordConfirmation(event.target.value)}
+            autoComplete="new-password"
+            required
+            disabled={changingPassword || !user?.name}
+          />
+          {passwordError ? <p className="settings-campaign-error">{passwordError}</p> : null}
+          <div>
+            <button type="submit" className="btn-subtle" disabled={changingPassword || !user?.name}>
+              {changingPassword ? 'Modification...' : 'Modifier le mot de passe'}
+            </button>
+          </div>
+        </form>
       </section>
 
       <section className="settings-campaign-management" aria-labelledby="campaign-management-title">

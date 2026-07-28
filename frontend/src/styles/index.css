@@ -124,6 +124,21 @@ body,
 	cursor: pointer;
 	white-space: nowrap;
 	overflow: hidden;
+	transition:
+		background 140ms ease,
+		border-color 140ms ease,
+		transform 140ms ease;
+}
+
+.nav button:hover:not(.active) {
+	border-color: color-mix(in oklch, var(--accent) 32%, var(--border));
+	background: color-mix(in oklch, var(--accent) 10%, transparent);
+	transform: translateX(3px);
+}
+
+.nav button:hover .nav-compact {
+	border-color: color-mix(in oklch, var(--accent) 62%, var(--border));
+	background: color-mix(in oklch, var(--accent) 14%, var(--surface));
 }
 
 .shared-sidebar:hover .nav button,
@@ -911,6 +926,13 @@ body,
 	margin: 0;
 }
 
+.login-logo {
+	justify-self: center;
+	max-width: 100%;
+	height: 64px;
+	object-fit: contain;
+}
+
 .login-field {
 	display: grid;
 	gap: 6px;
@@ -929,6 +951,44 @@ body,
 .login-error {
 	margin: 0;
 	color: #b42318;
+}
+
+.login-submit {
+	width: 100%;
+	border: 1px solid color-mix(in oklch, var(--accent) 70%, white);
+	border-radius: 10px;
+	background: linear-gradient(
+		135deg,
+		color-mix(in oklch, var(--accent) 90%, white),
+		var(--accent)
+	);
+	box-shadow: 0 8px 18px color-mix(in oklch, var(--accent) 24%, transparent);
+	color: oklch(18% 0.01 255);
+	cursor: pointer;
+	font: inherit;
+	font-weight: 750;
+	padding: 11px 14px;
+	transition:
+		transform 140ms ease,
+		box-shadow 140ms ease,
+		filter 140ms ease;
+}
+
+.login-submit:hover:not(:disabled) {
+	transform: translateY(-1px);
+	box-shadow: 0 11px 22px color-mix(in oklch, var(--accent) 30%, transparent);
+	filter: brightness(1.05);
+}
+
+.login-submit:focus-visible {
+	outline: 3px solid color-mix(in oklch, var(--accent) 48%, white);
+	outline-offset: 3px;
+}
+
+.login-submit:disabled {
+	box-shadow: none;
+	cursor: wait;
+	opacity: 0.65;
 }
 
 .settings-campaign-page {
@@ -989,6 +1049,19 @@ body,
 	color: var(--fg);
 }
 
+.settings-campaign-password {
+	border-top: 1px solid var(--border);
+	display: grid;
+	gap: 10px;
+	margin-top: 6px;
+	padding-top: 16px;
+}
+
+.settings-campaign-password h3 {
+	margin: 0;
+	font-size: 0.95rem;
+}
+
 .settings-campaign-management h2 {
 	margin: 0;
 	font-size: 1rem;
@@ -1001,7 +1074,8 @@ body,
 
 .settings-campaign-form input,
 .settings-campaign-form select,
-.settings-campaign-management select {
+.settings-campaign-management select,
+.settings-campaign-password input {
 	width: 100%;
 	border: 1px solid var(--border);
 	border-radius: 8px;

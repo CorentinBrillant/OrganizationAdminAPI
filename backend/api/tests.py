@@ -14,7 +14,6 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-
 from django.test import TestCase, override_settings
 
 from .auth import create_user_token
@@ -28,11 +27,12 @@ from .models import (
     HelloAssoItem,
     Member,
     MemberDuplicateSuggestion,
+    UserLogin,
 )
-from .services.federation_extranet_service import ExtranetExcelExtraction, FederationExtranetService
 from .services.badge_import_service import BadgeExcelExtraction, BadgeImportService
-from .services.file_blob_encryption import FILE_BLOB_ENCRYPTION_PREFIX
+from .services.federation_extranet_service import ExtranetExcelExtraction, FederationExtranetService
 from .services.ffck_export_import_service import FfckExportImportService
+from .services.file_blob_encryption import FILE_BLOB_ENCRYPTION_PREFIX
 from .services.helloasso_service import HelloAssoService
 from .services.member_sync_service import (
     BadgeMemberSyncService,
@@ -137,6 +137,8 @@ class ApiAuthenticationTests(TestCase):
             "/api/auth/login/",
             data={"username": "alice", "password": "pass1234"},
             content_type="application/json",
+            HTTP_X_REAL_IP="203.0.113.20",
+            HTTP_USER_AGENT="OrganizationAdminAPI tests",
         )
         self.assertEqual(login_response.status_code, 200)
         body = login_response.json()
@@ -145,11 +147,68 @@ class ApiAuthenticationTests(TestCase):
         self.assertEqual(body.get("token_type"), "Bearer")
         self.assertTrue(int(body.get("expires_in") or 0) > 0)
 
+        login_event = UserLogin.objects.get()
+        self.assertEqual(login_event.user.username, "alice")
+        self.assertEqual(login_event.username, "alice")
+        self.assertEqual(login_event.ip_address, "203.0.113.20")
+        self.assertEqual(login_event.user_agent, "OrganizationAdminAPI tests")
+
         authorized = self.client.get(
             "/api/campaigns/",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         self.assertEqual(authorized.status_code, 200)
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_failed_login_does_not_create_audit_event(self):
+        user_model = get_user_model()
+        user_model.objects.create_user(username="alice", password="pass1234")
+
+        response = self.client.post(
+            "/api/auth/login/",
+            data={"username": "alice", "password": "invalid"},
+            content_type="application/json",
+            HTTP_X_REAL_IP="203.0.113.20",
+            HTTP_USER_AGENT="OrganizationAdminAPI tests",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(UserLogin.objects.exists())
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_change_password_invalidates_existing_user_tokens(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(username="alice", password="pass1234")
+        token = create_user_token(user)
+
+        response = self.client.post(
+            "/api/auth/password/",
+            data={
+                "current_password": "pass1234",
+                "new_password": "A-secure-password-123",
+                "new_password_confirmation": "A-secure-password-123",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("password_changed"))
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("A-secure-password-123"))
+
+        old_token_response = self.client.get(
+            "/api/campaigns/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(old_token_response.status_code, 401)
+
+        login_response = self.client.post(
+            "/api/auth/login/",
+            data={"username": "alice", "password": "A-secure-password-123"},
+            content_type="application/json",
+        )
+        self.assertEqual(login_response.status_code, 200)
 
     @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
     def test_logout_revokes_current_token(self):

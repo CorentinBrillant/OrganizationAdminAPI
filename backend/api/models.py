@@ -2,8 +2,10 @@ import hashlib
 import uuid
 from pathlib import Path
 
+from django.conf import settings
 from django.db import models
 from django_cryptography.fields import encrypt
+
 from .services.file_blob_encryption import decrypt_file_blob, encrypt_file_blob
 
 
@@ -320,3 +322,24 @@ class AuthRevokedToken(models.Model):
 
     class Meta:
         ordering = ("-revoked_at",)
+
+
+class UserLogin(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="login_events",
+    )
+    username = models.CharField(max_length=150)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default="")
+    logged_in_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-logged_in_at",)
+        indexes = [
+            models.Index(fields=("user", "-logged_in_at")),
+            models.Index(fields=("-logged_in_at",)),
+        ]

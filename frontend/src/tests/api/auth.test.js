@@ -11,11 +11,11 @@ vi.mock('../../auth/token', () => ({
   withApiAuthHeaders: withApiAuthHeadersMock,
 }))
 
-import { checkSession, loginWithPassword, logoutSession } from '../../api/auth'
+import { changePassword, checkSession, loginWithPassword, logoutSession } from '../../api/auth'
 
 describe('auth api', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
     global.fetch = vi.fn()
   })
 
@@ -49,5 +49,35 @@ describe('auth api', () => {
     })
 
     await expect(logoutSession()).resolves.toEqual({ loggedOut: true })
+  })
+
+  it('envoie le changement de mot de passe avec la session authentifiée', async () => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue('csrftoken=test-csrf-token')
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ password_changed: true }),
+    })
+
+    await expect(
+      changePassword({
+        currentPassword: 'ancien-mot-de-passe',
+        newPassword: 'Nouveau-mot-de-passe-123',
+        newPasswordConfirmation: 'Nouveau-mot-de-passe-123',
+      }),
+    ).resolves.toEqual({ passwordChanged: true })
+
+    expect(global.fetch).toHaveBeenCalledWith('/api/auth/password/', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-token',
+        'Content-Type': 'application/json',
+        'X-CSRFToken': 'test-csrf-token',
+      },
+      body: JSON.stringify({
+        current_password: 'ancien-mot-de-passe',
+        new_password: 'Nouveau-mot-de-passe-123',
+        new_password_confirmation: 'Nouveau-mot-de-passe-123',
+      }),
+    })
   })
 })

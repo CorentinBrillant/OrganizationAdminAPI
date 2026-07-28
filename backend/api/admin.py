@@ -6,8 +6,9 @@ from .models import (
     FfckExportRow,
     HelloAssoImport,
     HelloAssoItem,
-    MemberDuplicateSuggestion,
     Member,
+    MemberDuplicateSuggestion,
+    UserLogin,
 )
 
 
@@ -134,3 +135,18 @@ class MemberDuplicateSuggestionAdmin(admin.ModelAdmin):
     list_filter = ("campaign", "status", "created_at", "resolved_at")
     search_fields = ("id", "campaign__id", "member_left__id", "member_right__id")
     ordering = ("-similarity_score", "-created_at")
+
+
+@admin.register(UserLogin)
+class UserLoginAdmin(admin.ModelAdmin):
+    list_display = ("id", "username", "user", "ip_address", "logged_in_at")
+    list_filter = ("logged_in_at",)
+    search_fields = ("username", "ip_address", "user__username")
+    ordering = ("-logged_in_at",)
+    readonly_fields = ("user", "username", "ip_address", "user_agent", "logged_in_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -32,6 +32,7 @@ export default function LoginPage({ onLogin }) {
     <div className="app-shell login-shell">
       <main className="app-main login-main">
         <form onSubmit={handleSubmit} className="login-form">
+          <img className="login-logo" src="/ckcp.png" alt="CKCP" />
           <h1 className="login-title">Connexion</h1>
           <label className="login-field">
             Login
@@ -54,7 +55,7 @@ export default function LoginPage({ onLogin }) {
             />
           </label>
           {error ? <p className="login-error">{error}</p> : null}
-          <button type="submit" disabled={submitting}>
+          <button type="submit" className="login-submit" disabled={submitting}>
             {submitting ? 'Connexion...' : 'Se connecter'}
           </button>
         </form>
