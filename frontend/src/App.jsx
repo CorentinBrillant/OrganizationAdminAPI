@@ -123,9 +123,9 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activePage={activePage} onPageChange={setActivePage} user={authUser} onLogout={handleLogout} />
+      <Sidebar activePage={activePage} onPageChange={setActivePage} />
       <main className="app-main">
-        <ActivePage key={activePageRenderKey} />
+        <ActivePage key={activePageRenderKey} user={authUser} onLogout={handleLogout} />
       </main>
     </div>
   )

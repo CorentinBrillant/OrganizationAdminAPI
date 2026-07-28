@@ -2,13 +2,20 @@ import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
 import { fetchHelloAssoMembershipForms, updateCampaignSettings } from '../api/campaigns'
-import { loadCampaigns } from '../store/campaignsSlice'
+import {
+  createCampaign,
+  loadCampaignFfckRows,
+  loadCampaignMembers,
+  loadCampaigns,
+  setActiveCampaign,
+} from '../store/campaignsSlice'
 
-export default function SettingsCampagnePage() {
+export default function SettingsCampagnePage({ user = null, onLogout = null }) {
   const dispatch = useDispatch()
   const activeCampaign = useSelector((state) => state.campaigns.activeCampaign)
   const activeCampaignId = useSelector((state) => state.campaigns.activeCampaignId)
   const catalog = useSelector((state) => state.campaigns.catalog)
+  const campaigns = useSelector((state) => state.campaigns.items)
   const [helloassoFormSlug, setHelloassoFormSlug] = useState('')
   const [error, setError] = useState('')
   const [formsError, setFormsError] = useState('')
@@ -57,6 +64,29 @@ export default function SettingsCampagnePage() {
     }
   }, [])
 
+  const handleCampaignChange = (event) => {
+    const nextCampaign = String(event.target.value || '').trim()
+    dispatch(setActiveCampaign(nextCampaign))
+
+    const campaign = catalog.find((item) => item.title === nextCampaign)
+    const campaignId = Number(campaign?.id)
+    if (Number.isFinite(campaignId)) {
+      dispatch(loadCampaignMembers({ campaignId, force: true }))
+      dispatch(loadCampaignFfckRows({ campaignId, force: true }))
+    }
+  }
+
+  const handleAddCampaign = () => {
+    const next = window.prompt('Nom de la campagne (ex: 2027)')
+    const title = String(next || '').trim()
+    if (!title) return
+    dispatch(createCampaign({ title }))
+      .unwrap()
+      .catch(() => {
+        window.alert('Impossible de créer la campagne. Vérifie le backend API.')
+      })
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     if (saving) return
@@ -91,6 +121,40 @@ export default function SettingsCampagnePage() {
           Campagne active: <strong>{selectedCampaign?.title || 'Aucune'}</strong>
         </p>
       </header>
+
+      <section className="settings-campaign-account" aria-labelledby="account-settings-title">
+        <h2 id="account-settings-title">Session</h2>
+        <div>
+          <strong>{user?.name || 'Aucun utilisateur connecté'}</strong>
+          {user?.name ? <span>{user.role || 'Connecté'}</span> : null}
+        </div>
+        <button type="button" className="btn-subtle" onClick={onLogout} disabled={!onLogout}>
+          Se déconnecter
+        </button>
+      </section>
+
+      <section className="settings-campaign-management" aria-labelledby="campaign-management-title">
+        <h2 id="campaign-management-title">Gestion des campagnes</h2>
+        <label className="settings-campaign-field" htmlFor="campaignSelect">
+          Campagne active
+        </label>
+        <select
+          id="campaignSelect"
+          value={activeCampaign || ''}
+          onChange={handleCampaignChange}
+        >
+          {campaigns.map((campaign) => (
+            <option key={campaign} value={campaign}>
+              {/^\d{4}$/.test(campaign) ? `Campagne ${campaign}` : campaign}
+            </option>
+          ))}
+        </select>
+        <div>
+          <button type="button" className="btn-subtle" onClick={handleAddCampaign}>
+            Nouvelle campagne
+          </button>
+        </div>
+      </section>
 
       <form className="settings-campaign-form" onSubmit={handleSubmit}>
         <label className="settings-campaign-field" htmlFor="campaignHelloAssoSelector">

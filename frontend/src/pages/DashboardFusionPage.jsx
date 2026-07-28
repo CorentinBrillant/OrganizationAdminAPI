@@ -261,6 +261,7 @@ export default function DashboardFusionPage() {
 	const [selectedIds, setSelectedIds] = useState(new Set());
 	const [edits, setEdits] = useState({});
 	const [selectedMemberId, setSelectedMemberId] = useState(null);
+	const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 	const [pendingCertificateMemberId, setPendingCertificateMemberId] =
 		useState(null);
 	const [busyAction, setBusyAction] = useState("");
@@ -352,6 +353,7 @@ export default function DashboardFusionPage() {
 		setEdits({});
 		setSelectedIds(new Set());
 		setSelectedMemberId(null);
+		setMobileDetailOpen(false);
 	}, [activeCampaignId, dispatch]);
 
 	useEffect(() => {
@@ -387,6 +389,27 @@ export default function DashboardFusionPage() {
 			type: "campaigns/setPageFilters",
 			payload: { page: "dashboard", filters: next },
 		});
+	};
+
+	const handleSearchChange = (value) => {
+		setSearch(value);
+		updateFilters({ search: value });
+		if (
+			typeof window !== "undefined" &&
+			window.matchMedia?.("(max-width: 700px)").matches
+		) {
+			const scrollToTable = () => {
+				tableWrapRef.current?.scrollIntoView({
+					behavior: "smooth",
+					block: "start",
+				});
+			};
+			if (typeof window.requestAnimationFrame === "function") {
+				window.requestAnimationFrame(scrollToTable);
+			} else {
+				scrollToTable();
+			}
+		}
 	};
 
 	const updateEdit = (memberId, key, value) => {
@@ -628,11 +651,145 @@ export default function DashboardFusionPage() {
 		);
 	};
 
+
+	const renderDetailField = (row, column) => {
+		const value = row[column.key] ?? "";
+		if (column.key === "manual_review") {
+			return (
+				<button
+					type="button"
+					className={`dashboard-badge ${badgeClass(value)}`}
+					onClick={() =>
+						updateEdit(
+							row.member_id,
+							"manual_review",
+							value === "vérifié" ? "non vérifié" : "vérifié",
+						)
+					}
+				>
+					{value}
+				</button>
+			);
+		}
+		if (column.key === "certificat") return renderCertificateControl(row);
+		if (
+			["autorisation_parentale", "photo"].includes(column.key) &&
+			/^https?:\/\//i.test(value)
+		) {
+			return (
+				<a href={value} target="_blank" rel="noreferrer">
+					Ouvrir
+				</a>
+			);
+		}
+		if (lockedColumns.has(column.key)) return value;
+		return (
+			<input
+				aria-label={`${column.label} pour ${row.prenom} ${row.nom}`}
+				value={value}
+				onChange={(event) =>
+					updateEdit(row.member_id, column.key, event.target.value)
+				}
+			/>
+		);
+	};
+
+	const renderMemberDetail = (row) => {
+		if (!row) {
+			return (
+				<p className="dashboard-empty">
+					Aucun membre ne correspond aux filtres actuels.
+				</p>
+			);
+		}
+
+		return (
+			<>
+				<p className="dashboard-eyebrow">Dossier membre</p>
+				<h2>
+					{row.prenom} {row.nom}
+				</h2>
+				<button
+					type="button"
+					className={`dashboard-badge ${badgeClass(row.statut)}`}
+				>
+					{row.statut}
+				</button>
+				<div className="dashboard-detail-grid">
+					{sourceColumns.map((column) => (
+						<div key={column.key} className="dashboard-detail-field">
+							<span>{column.label}</span>
+							<strong>{renderDetailField(row, column)}</strong>
+						</div>
+					))}
+					<div className="dashboard-detail-field">
+						<span>Type licence</span>
+						<strong>{row.ffck_licence_type || "—"}</strong>
+					</div>
+					<div className="dashboard-detail-field">
+						<span>Formulaire HelloAsso</span>
+						<strong>{row.helloasso_form_slug || "—"}</strong>
+					</div>
+				</div>
+				<section className="dashboard-review-box">
+					<h3>Contrôle à effectuer</h3>
+					<p>{row.raison}</p>
+					<button
+						type="button"
+						onClick={() =>
+							updateEdit(
+								row.member_id,
+								"manual_review",
+								row.manual_review === "vérifié"
+									? "non vérifié"
+									: "vérifié",
+							)
+						}
+					>
+						{row.manual_review === "vérifié"
+							? "Retirer la vérification"
+							: "Marquer comme vérifié"}
+					</button>
+				</section>
+				<section className="dashboard-source-stack">
+					<h3>Sources consolidées</h3>
+					<article>
+						<span>HelloAsso</span>
+						<strong>
+							{row.helloasso_form_slug || "Formulaire non renseigné"}
+						</strong>
+					</article>
+					<article>
+						<span>FFCK</span>
+						<strong>{row.ffck_licence_type || "Licence non qualifiée"}</strong>
+					</article>
+					<article>
+						<span>Badges</span>
+						<strong>
+							Possédé {row.badge_owned} · Commandé {row.badge_ordered}
+						</strong>
+					</article>
+				</section>
+			</>
+		);
+	};
+
+	const openMemberDetail = (memberId) => {
+		setSelectedMemberId(memberId);
+		if (
+			typeof window !== "undefined" &&
+			window.matchMedia?.("(max-width: 700px)").matches
+		) {
+			setMobileDetailOpen(true);
+		}
+	};
+
 	const renderRowField = (row, column) => {
 		const value = row[column.key] ?? "";
+		const columnClassName = `dashboard-column-${column.key}`;
 		if (column.key === "statut" || column.key === "manual_review") {
 			return (
-				<td key={column.key}>
+				<td key={column.key} className={columnClassName}>
 					<button
 						type="button"
 						className={`dashboard-badge ${badgeClass(value)}`}
@@ -651,22 +808,32 @@ export default function DashboardFusionPage() {
 			);
 		}
 		if (column.key === "certificat")
-			return <td key={column.key}>{renderCertificateControl(row)}</td>;
+			return (
+				<td key={column.key} className={columnClassName}>
+					{renderCertificateControl(row)}
+				</td>
+			);
 		if (
 			["autorisation_parentale", "photo"].includes(column.key) &&
 			/^https?:\/\//i.test(value)
 		) {
 			return (
-				<td key={column.key}>
+				<td key={column.key} className={columnClassName}>
 					<a href={value} target="_blank" rel="noreferrer">
 						Ouvrir
 					</a>
 				</td>
 			);
 		}
-		if (lockedColumns.has(column.key)) return <td key={column.key}>{value}</td>;
+		if (lockedColumns.has(column.key)) {
+			return (
+				<td key={column.key} className={columnClassName}>
+					{value}
+				</td>
+			);
+		}
 		return (
-			<td key={column.key}>
+			<td key={column.key} className={columnClassName}>
 				<input
 					aria-label={`${column.label} pour ${row.prenom} ${row.nom}`}
 					value={value}
@@ -678,8 +845,50 @@ export default function DashboardFusionPage() {
 		);
 	};
 
+	if (mobileDetailOpen) {
+		return (
+			<section className="dashboard-mobile-member-page">
+				<header>
+					<button
+						type="button"
+						className="btn-subtle dashboard-mobile-back"
+						aria-label="Retour au tableau"
+						title="Retour au tableau"
+						onClick={() => setMobileDetailOpen(false)}
+					>
+						<span aria-hidden="true">&larr;</span>
+					</button>
+				</header>
+				<aside
+					className="dashboard-detail-panel dashboard-mobile-detail-panel"
+					aria-label="Dossier membre"
+				>
+					{renderMemberDetail(selectedRow)}
+				</aside>
+				<input
+					ref={fileInputRef}
+					hidden
+					type="file"
+					accept=".pdf,.jpg,.jpeg,.png"
+					onChange={uploadCertificate}
+				/>
+			</section>
+		);
+	}
+
 	return (
 		<section className="dashboard-fusion">
+			<div className="dashboard-mobile-search">
+				<label className="dashboard-search">
+					<span>Recherche</span>
+					<input
+						value={search}
+						type="search"
+						placeholder="Nom, email, licence..."
+						onChange={(event) => handleSearchChange(event.target.value)}
+					/>
+				</label>
+			</div>
 			<header className="dashboard-hero">
 				<div>
 					<p className="dashboard-eyebrow">Campagne active</p>
@@ -764,17 +973,14 @@ export default function DashboardFusionPage() {
 					/>
 				</div>
 
-				<div className="dashboard-filters">
+				<div className="dashboard-filters dashboard-workbar-search">
 					<label className="dashboard-search">
 						<span>Recherche</span>
 						<input
 							value={search}
 							type="search"
 							placeholder="Nom, email, licence..."
-							onChange={(event) => {
-								setSearch(event.target.value);
-								updateFilters({ search: event.target.value });
-							}}
+							onChange={(event) => handleSearchChange(event.target.value)}
 						/>
 					</label>
 				</div>
@@ -853,7 +1059,7 @@ export default function DashboardFusionPage() {
 						<table ref={tableRef}>
 							<thead>
 								<tr>
-									<th>
+									<th className="dashboard-selection-column">
 										<input
 											type="checkbox"
 											aria-label="Sélectionner tous les membres visibles"
@@ -871,7 +1077,10 @@ export default function DashboardFusionPage() {
 										/>
 									</th>
 									{columns.map((column, index) => (
-										<th key={column.key}>
+										<th
+											key={column.key}
+											className={`dashboard-column-${column.key}`}
+										>
 											<div className="dashboard-column-head">
 												<span>{column.label}</span>
 												<span>
@@ -917,9 +1126,9 @@ export default function DashboardFusionPage() {
 												? "is-focused"
 												: ""
 										}
-										onClick={() => setSelectedMemberId(row.member_id)}
+										onClick={() => openMemberDetail(row.member_id)}
 									>
-										<td>
+										<td className="dashboard-selection-column">
 											<input
 												type="checkbox"
 												aria-label={`Sélectionner ${row.prenom} ${row.nom}`}
@@ -970,7 +1179,7 @@ export default function DashboardFusionPage() {
 									<button
 										type="button"
 										className={`dashboard-badge ${badgeClass(row.statut)}`}
-										onClick={() => setSelectedMemberId(row.member_id)}
+										onClick={() => openMemberDetail(row.member_id)}
 									>
 										{row.statut}
 									</button>
@@ -1020,79 +1229,7 @@ export default function DashboardFusionPage() {
 					className="dashboard-detail-panel"
 					aria-label="Détail membre sélectionné"
 				>
-					{selectedRow ? (
-						<>
-							<p className="dashboard-eyebrow">Dossier membre</p>
-							<h2>
-								{selectedRow.prenom} {selectedRow.nom}
-							</h2>
-							<button
-								type="button"
-								className={`dashboard-badge ${badgeClass(selectedRow.statut)}`}
-							>
-								{selectedRow.statut}
-							</button>
-							<div className="dashboard-detail-grid">
-								<span>Email</span>
-								<strong>{selectedRow.email}</strong>
-								<span>Licence FFCK</span>
-								<strong>{selectedRow.licence}</strong>
-								<span>Type licence</span>
-								<strong>{selectedRow.ffck_licence_type || "—"}</strong>
-								<span>Formulaire HelloAsso</span>
-								<strong>{selectedRow.helloasso_form_slug || "—"}</strong>
-								<span>Certificat</span>
-								<strong>{renderCertificateControl(selectedRow)}</strong>
-							</div>
-							<section className="dashboard-review-box">
-								<h3>Contrôle à effectuer</h3>
-								<p>{selectedRow.raison}</p>
-								<button
-									type="button"
-									onClick={() =>
-										updateEdit(
-											selectedRow.member_id,
-											"manual_review",
-											selectedRow.manual_review === "vérifié"
-												? "non vérifié"
-												: "vérifié",
-										)
-									}
-								>
-									{selectedRow.manual_review === "vérifié"
-										? "Retirer la vérification"
-										: "Marquer comme vérifié"}
-								</button>
-							</section>
-							<section className="dashboard-source-stack">
-								<h3>Sources consolidées</h3>
-								<article>
-									<span>HelloAsso</span>
-									<strong>
-										{selectedRow.helloasso_form_slug ||
-											"Formulaire non renseigné"}
-									</strong>
-								</article>
-								<article>
-									<span>FFCK</span>
-									<strong>
-										{selectedRow.ffck_licence_type || "Licence non qualifiée"}
-									</strong>
-								</article>
-								<article>
-									<span>Badges</span>
-									<strong>
-										Possédé {selectedRow.badge_owned} · Commandé{" "}
-										{selectedRow.badge_ordered}
-									</strong>
-								</article>
-							</section>
-						</>
-					) : (
-						<p className="dashboard-empty">
-							Aucun membre ne correspond aux filtres actuels.
-						</p>
-					)}
+					{renderMemberDetail(selectedRow)}
 				</aside>
 			</div>
 			<input
