@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from .auth import create_user_token
@@ -1672,6 +1673,178 @@ class FederationExtranetServiceTests(TestCase):
         )
 
         self.assertEqual(code, "94287082")
+
+
+class DownloadFfckPhotosCommandTests(TestCase):
+    @patch("api.management.commands.download_ffck_photos.Command._build_service")
+    def test_downloads_unique_photo_urls(self, mock_build_service):
+        from api.services.federation_extranet_service import _HTTPPayload
+
+        service = mock_build_service.return_value
+        service.totp_path = "/totp"
+        service.token_type = "Bearer"
+        service._as_url.return_value = "https://extranet.ffck.org/totp"
+        service._fetch_token.return_value = "token"
+        service._request.side_effect = [
+            _HTTPPayload(
+                headers={},
+                body=(
+                    b'<meta name="csrf-token" content="csrf-token-value">'
+                    b'<form id="filtresLicenciesStructure">'
+                    b'<select name="saison"><option value="2026" selected="selected">2026</option></select>'
+                    b'<select name="etat"><option value="*A" selected="selected">Active</option></select>'
+                    b'<input name="structure" type="hidden" value="2857">'
+                    b'<input name="haut_niveau" type="checkbox" value="1">'
+                    b'</form>'
+                    b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
+                    b"licencies/ajax'</script>"
+                ),
+            ),
+            _HTTPPayload(
+                headers={},
+                body=json.dumps(
+                    {
+                        "total": 2,
+                        "data": [
+                            {
+                                "code_adherent": "100001",
+                                "photo_url": (
+                                    "https://extranet.ffck.org/storage/photos_personnes/1_a.png"
+                                )
+                            },
+                            {
+                                "code_adherent": "100002",
+                                "photo_url": (
+                                    "https://extranet.ffck.org/storage/photos_personnes/opaque-file.jpg"
+                                )
+                            },
+                        ],
+                    }
+                ).encode(),
+            ),
+            _HTTPPayload(headers={}, body=b"first-photo"),
+            _HTTPPayload(headers={}, body=b"second-photo"),
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            call_command("download_ffck_photos", output_dir=directory)
+
+            self.assertEqual((Path(directory) / "1_a.png").read_bytes(), b"first-photo")
+            self.assertEqual((Path(directory) / "100002.jpg").read_bytes(), b"second-photo")
+
+        service._perform_login_step.assert_called_once_with()
+        service._perform_totp_step.assert_called_once_with()
+        service._select_structure_step.assert_called_once_with()
+        self.assertEqual(service._request.call_count, 4)
+        self.assertEqual(
+            service._request.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer token"
+        )
+        self.assertIn(
+            "licencies/ajax?draw=1&start=0&length=50",
+            service._request.call_args_list[1].args[0],
+        )
+        self.assertIn(
+            "columns%5B0%5D%5Bdata%5D=code_adherent",
+            service._request.call_args_list[1].args[0],
+        )
+        self.assertIn(
+            "columns%5B23%5D%5Bdata%5D=representant_legal_2",
+            service._request.call_args_list[1].args[0],
+        )
+        self.assertIn("filtres%5Bsaison%5D=2026", service._request.call_args_list[1].args[0])
+        self.assertIn("filtres%5Betat%5D=%2AA", service._request.call_args_list[1].args[0])
+        self.assertIn("filtres%5Bstructure%5D=2857", service._request.call_args_list[1].args[0])
+        self.assertEqual(
+            service._request.call_args_list[1].kwargs["headers"]["X-CSRF-TOKEN"], "csrf-token-value"
+        )
+        self.assertEqual(
+            service._request.call_args_list[1].kwargs["headers"]["X-Requested-With"],
+            "XMLHttpRequest",
+        )
+
+    @patch("api.management.commands.download_ffck_photos.Command._build_service")
+    def test_skips_an_existing_renamed_photo(self, mock_build_service):
+        from api.services.federation_extranet_service import _HTTPPayload
+
+        service = mock_build_service.return_value
+        service.totp_path = "/totp"
+        service.token_type = "Bearer"
+        service._as_url.return_value = "https://extranet.ffck.org/totp"
+        service._fetch_token.return_value = ""
+        service._request.side_effect = [
+            _HTTPPayload(
+                headers={},
+                body=(
+                    b'<meta name="csrf-token" content="csrf-token-value">'
+                    b'<form id="filtresLicenciesStructure">'
+                    b'<input name="structure" type="hidden" value="2857">'
+                    b'</form>'
+                    b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
+                    b"licencies/ajax'</script>"
+                ),
+            ),
+            _HTTPPayload(
+                headers={},
+                body=json.dumps(
+                    {
+                        "total": 1,
+                        "data": [
+                            {
+                                "code_adherent": "100003",
+                                "photo_url": (
+                                    "https://extranet.ffck.org/storage/photos_personnes/opaque-file.jpg"
+                                ),
+                            }
+                        ],
+                    }
+                ).encode(),
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "100003.jpg").write_bytes(b"existing-photo")
+            call_command("download_ffck_photos", output_dir=directory)
+
+        self.assertEqual(service._request.call_count, 2)
+
+    @patch("api.management.commands.download_ffck_photos.Command._build_service")
+    def test_accepts_a_raw_json_list_from_ajax_endpoint(self, mock_build_service):
+        from api.services.federation_extranet_service import _HTTPPayload
+
+        service = mock_build_service.return_value
+        service.totp_path = "/totp"
+        service.token_type = "Bearer"
+        service._as_url.return_value = "https://extranet.ffck.org/totp"
+        service._fetch_token.return_value = ""
+        service._request.side_effect = [
+            _HTTPPayload(
+                headers={},
+                body=(
+                    b'<meta name="csrf-token" content="csrf-token-value">'
+                    b'<form id="filtresLicenciesStructure">'
+                    b'<input name="structure" type="hidden" value="2857">'
+                    b'</form>'
+                    b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
+                    b"licencies/ajax'</script>"
+                ),
+            ),
+            _HTTPPayload(
+                headers={},
+                body=json.dumps(
+                    [
+                        {
+                            "photo_url": (
+                                "https://extranet.ffck.org/storage/photos_personnes/3_c.png"
+                            )
+                        }
+                    ]
+                ).encode(),
+            ),
+        ]
+
+        call_command("download_ffck_photos", dry_run=True)
+
+        self.assertEqual(service._request.call_count, 2)
 
 
 class FederationExtranetExtractExcelViewTests(AuthenticatedApiTestCase):
