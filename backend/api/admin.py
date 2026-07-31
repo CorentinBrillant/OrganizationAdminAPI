@@ -111,6 +111,7 @@ class FfckExportRowAdmin(admin.ModelAdmin):
         "licence",
         "nom",
         "categorie",
+        "photo",
         "member",
         "created_at",
     )

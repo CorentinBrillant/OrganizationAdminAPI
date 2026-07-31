@@ -9,8 +9,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from http.cookiejar import CookieJar
+from pathlib import Path
+
+from cryptography.fernet import Fernet
+from django.conf import settings
 
 
 class FederationExtranetConfigError(Exception):
@@ -31,6 +36,8 @@ class ExtranetExcelExtraction:
     content_type: str
     content: bytes
     token: str
+    photo_paths: dict[str, str] | None = None
+    photo_original_names: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,55 @@ HIDDEN_INPUT_RE = re.compile(
 )
 NAME_ATTR_RE = re.compile(r"name=[\"']([^\"']+)[\"']", flags=re.IGNORECASE)
 VALUE_ATTR_RE = re.compile(r"value=[\"']([^\"']*)[\"']", flags=re.IGNORECASE)
+AJAX_URL_RE = re.compile(r"['\"]([^'\"]+/licencies/ajax)['\"]", flags=re.IGNORECASE)
+CSRF_TOKEN_RE = re.compile(
+    r"<meta[^>]+name=[\"']csrf-token[\"'][^>]+content=[\"']([^\"']+)[\"']",
+    flags=re.IGNORECASE,
+)
+FILTER_FORM_RE = re.compile(
+    r"<form\b[^>]*\bid=[\"']filtresLicenciesStructure[\"'][^>]*>(.*?)</form>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+FORM_INPUT_RE = re.compile(
+    r"<input\b[^>]*>|<select\b[^>]*>.*?</select>", flags=re.IGNORECASE | re.DOTALL
+)
+SELECTED_OPTION_RE = re.compile(
+    r"<option\b[^>]*\bselected(?:=[\"']?selected[\"']?)?[^>]*>", re.IGNORECASE
+)
+CHECKED_RE = re.compile(r"\bchecked(?:=[\"']?checked[\"']?)?", flags=re.IGNORECASE)
+PHOTO_URL_RE = re.compile(
+    r"https://extranet\.ffck\.org/storage/photos_personnes/[^\"'\s<>]+",
+    flags=re.IGNORECASE,
+)
+STANDARD_PHOTO_FILENAME_RE = re.compile(r"^\d+_.+\.[A-Za-z0-9]+$")
+PHOTO_PAGE_SIZE = 50
+PHOTO_UPLOAD_DIRECTORY = "members/ffck_photos"
+PHOTO_DATATABLE_COLUMNS = (
+    ("code_adherent", "personnes.code_adherent"),
+    ("nom", "personnes.nom"),
+    ("prenom", "personnes.prenom"),
+    ("sexe", "personnes.sexe"),
+    ("ddn", "personnes.ddn"),
+    ("photo", ""),
+    ("etat", "licences.etat"),
+    ("date_demande", "licences.date_demande"),
+    ("date_debut_validite", "licences.date_debut_validite"),
+    ("date_fin", "licences.date_fin"),
+    ("saisie_par", "licences.saisie_par"),
+    ("ia", "licences.no_ia"),
+    ("type_libelle", "licences_types.libelle"),
+    ("discipline", "licences_types.libelle"),
+    ("categorie_age", "licences_types.libelle"),
+    ("mutation", "licences_types.libelle"),
+    ("surclassement", "licences_types.libelle"),
+    ("mail", "adresses.mail"),
+    ("telephone", "adresses.tel"),
+    ("adresse", "adresses.num_voie"),
+    ("code_postal", "adresses.code_postal_fr"),
+    ("commune", "adresses.commune"),
+    ("representant_legal_1", "licences.date_demande"),
+    ("representant_legal_2", "licences.date_demande"),
+)
 
 
 @dataclass
@@ -69,6 +125,7 @@ class FederationExtranetService:
     export_form_path: str = ""
     export_extra_payload: str = ""
     structure_select_path: str = ""
+    member_page_path: str = ""
 
     def __post_init__(self) -> None:
         required_fields = {
@@ -119,7 +176,7 @@ class FederationExtranetService:
         code = binary % (10**digits)
         return str(code).zfill(digits)
 
-    def extract_excel(self) -> ExtranetExcelExtraction:
+    def extract_excel(self, *, download_member_photos: bool = False) -> ExtranetExcelExtraction:
         self._perform_login_step()
         self._perform_totp_step()
         self._select_structure_step()
@@ -185,12 +242,254 @@ class FederationExtranetService:
                 "The federation extranet returned an empty export file."
             )
 
+        photo_paths, photo_original_names = (
+            self.download_member_photos(common_headers) if download_member_photos else ({}, {})
+        )
+
         return ExtranetExcelExtraction(
             filename=filename,
             content_type=content_type,
             content=payload.body,
             token=token,
+            photo_paths=photo_paths,
+            photo_original_names=photo_original_names,
         )
+
+    def download_member_photos(
+        self, headers: dict[str, str]
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Downloads FFCK member photos once and returns their paths keyed by licence."""
+        page_url = self._member_page_url()
+        page = self._request(
+            page_url,
+            method="GET",
+            headers={**headers, "Referer": self._as_url(self.totp_path)},
+        )
+        page_html = page.body.decode("utf-8", errors="ignore")
+        ajax_url = self._extract_photo_ajax_url(page_html, page_url)
+        csrf_token = self._extract_photo_csrf_token(page_html)
+        photos = self._fetch_member_photos(
+            ajax_url, headers, csrf_token, self._extract_member_filters(page_html)
+        )
+        output_dir = Path(settings.MEDIA_ROOT) / PHOTO_UPLOAD_DIRECTORY
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        photo_paths = {}
+        photo_original_names = {}
+        existing_photos = self._existing_photo_paths_by_licence()
+        for licence, photo_url in photos.items():
+            existing_photo = existing_photos.get(licence)
+            if existing_photo:
+                photo_paths[licence], photo_original_names[licence] = existing_photo
+                continue
+
+            original_name = self._photo_filename(photo_url, licence)
+            photo = self._request(photo_url, method="GET", headers=headers)
+            if not photo.body:
+                continue
+            stored_name = f"{uuid.uuid4().hex}.enc"
+            destination = output_dir / stored_name
+            destination.write_bytes(self._encrypt_photo(photo.body))
+            photo_paths[licence] = f"{PHOTO_UPLOAD_DIRECTORY}/{stored_name}"
+            photo_original_names[licence] = original_name
+
+        return photo_paths, photo_original_names
+
+    @staticmethod
+    def _encrypt_photo(content: bytes) -> bytes:
+        key = str(getattr(settings, "MEMBER_CERTIFICAT_ENCRYPTION_KEY", "")).strip()
+        if not key:
+            raise FederationExtranetConfigError(
+                "MEMBER_CERTIFICAT_ENCRYPTION_KEY must be configured."
+            )
+        try:
+            return Fernet(key.encode("utf-8")).encrypt(content)
+        except Exception as exc:
+            raise FederationExtranetConfigError(
+                "MEMBER_CERTIFICAT_ENCRYPTION_KEY is invalid. Expected a URL-safe base64 key."
+            ) from exc
+
+    @classmethod
+    def _existing_photo_paths_by_licence(cls) -> dict[str, tuple[str, str]]:
+        from ..models import FfckExportRow
+
+        photos = {}
+        for row in FfckExportRow.objects.exclude(photo="").only(
+            "licence", "photo", "photo_original_name"
+        ):
+            licence = str(row.licence or "").strip()
+            photo_path = str(row.photo.name or "").strip()
+            if licence and photo_path and row.photo.storage.exists(photo_path):
+                original_name = str(row.photo_original_name or Path(photo_path).name).strip()
+                if not photo_path.endswith(".enc"):
+                    encrypted_path = f"{PHOTO_UPLOAD_DIRECTORY}/{uuid.uuid4().hex}.enc"
+                    with row.photo.storage.open(photo_path, "rb") as source:
+                        encrypted_content = cls._encrypt_photo(source.read())
+                    with row.photo.storage.open(encrypted_path, "wb") as destination:
+                        destination.write(encrypted_content)
+                    row.photo.name = encrypted_path
+                    row.photo_original_name = original_name
+                    row.save(update_fields=["photo", "photo_original_name"])
+                    row.photo.storage.delete(photo_path)
+                    photo_path = encrypted_path
+                photos.setdefault(licence, (photo_path, original_name))
+        return photos
+
+    def _member_page_url(self) -> str:
+        configured = str(self.member_page_path or "").strip()
+        if configured:
+            return self._as_url(configured)
+
+        match = re.search(r"/select-structure/(\d+)", str(self.structure_select_path or ""))
+        if not match:
+            raise FederationExtranetConfigError(
+                "FFCK member photo page requires FFCK_EXTRANET_MEMBER_PAGE_PATH "
+                "or a structure selection path."
+            )
+        return self._as_url(f"/structures/fiche/{match.group(1)}/licencies")
+
+    def _fetch_member_photos(
+        self, ajax_url: str, headers: dict[str, str], csrf_token: str, filters: dict[str, str]
+    ) -> dict[str, str]:
+        start = 0
+        total = None
+        photos = {}
+        while total is None or start < total:
+            query_params = self._photo_datatable_query(start)
+            query_params.update({f"filtres[{name}]": value for name, value in filters.items()})
+            query = urllib.parse.urlencode(query_params)
+            separator = "&" if "?" in ajax_url else "?"
+            payload = self._request(
+                f"{ajax_url}{separator}{query}",
+                method="GET",
+                headers={
+                    **headers,
+                    "Accept": "application/json",
+                    "Referer": ajax_url,
+                    "X-CSRF-TOKEN": csrf_token,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            )
+            try:
+                data = json.loads(payload.body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise FederationExtranetExportError(
+                    "FFCK member photo endpoint did not return valid JSON."
+                ) from exc
+
+            if isinstance(data, list):
+                rows, total = data, len(data)
+            elif isinstance(data, dict):
+                rows = data.get("data", [])
+                total = data.get("total", data.get("recordsFiltered", len(rows)))
+            else:
+                raise FederationExtranetExportError(
+                    "FFCK member photo response has an invalid format."
+                )
+            if not isinstance(rows, list):
+                raise FederationExtranetExportError(
+                    "FFCK member photo response has an invalid data field."
+                )
+            try:
+                total = int(total)
+            except (TypeError, ValueError) as exc:
+                raise FederationExtranetExportError(
+                    "FFCK member photo response has an invalid total."
+                ) from exc
+
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                licence = str(row.get("code_adherent", "")).strip()
+                photo_url = str(row.get("photo_url", "")).strip()
+                if licence and PHOTO_URL_RE.fullmatch(photo_url):
+                    photos[licence] = photo_url
+            if not rows:
+                break
+            start += len(rows)
+        return photos
+
+    @staticmethod
+    def _extract_photo_ajax_url(page_html: str, page_url: str) -> str:
+        match = AJAX_URL_RE.search(page_html)
+        if not match:
+            raise FederationExtranetExportError("Could not find the FFCK member photo endpoint.")
+        return urllib.parse.urljoin(page_url, match.group(1))
+
+    @staticmethod
+    def _extract_photo_csrf_token(page_html: str) -> str:
+        match = CSRF_TOKEN_RE.search(page_html)
+        if not match:
+            raise FederationExtranetExportError("Could not find the FFCK member photo CSRF token.")
+        return match.group(1)
+
+    @staticmethod
+    def _extract_member_filters(page_html: str) -> dict[str, str]:
+        form_match = FILTER_FORM_RE.search(page_html)
+        if not form_match:
+            raise FederationExtranetExportError("Could not find the FFCK member filters form.")
+
+        filters = {}
+        for element in FORM_INPUT_RE.findall(form_match.group(1)):
+            name_match = NAME_ATTR_RE.search(element)
+            if not name_match:
+                continue
+            name = name_match.group(1)
+            if name.endswith("[]"):
+                continue
+            if element.lower().startswith("<select"):
+                selected_match = SELECTED_OPTION_RE.search(element)
+                value_match = (
+                    VALUE_ATTR_RE.search(selected_match.group(0)) if selected_match else None
+                )
+            else:
+                input_type = re.search(r"\btype=[\"']([^\"']+)[\"']", element, re.IGNORECASE)
+                if input_type and input_type.group(1).lower() in {"checkbox", "radio"}:
+                    if not CHECKED_RE.search(element):
+                        continue
+                value_match = VALUE_ATTR_RE.search(element)
+            if value_match:
+                filters[name] = value_match.group(1)
+        return filters
+
+    @staticmethod
+    def _photo_datatable_query(start: int) -> dict[str, str | int]:
+        query = {
+            "draw": start // PHOTO_PAGE_SIZE + 1,
+            "start": start,
+            "length": PHOTO_PAGE_SIZE,
+            "search[value]": "",
+            "search[regex]": "false",
+            "order[0][column]": 1,
+            "order[0][dir]": "asc",
+            "order[1][column]": 0,
+            "order[1][dir]": "asc",
+        }
+        for index, (data, name) in enumerate(PHOTO_DATATABLE_COLUMNS):
+            prefix = f"columns[{index}]"
+            query.update(
+                {
+                    f"{prefix}[data]": data,
+                    f"{prefix}[name]": name,
+                    f"{prefix}[searchable]": "true",
+                    f"{prefix}[orderable]": "true",
+                    f"{prefix}[search][value]": "",
+                    f"{prefix}[search][regex]": "false",
+                }
+            )
+        return query
+
+    @staticmethod
+    def _photo_filename(photo_url: str, licence: str) -> str:
+        filename = Path(urllib.parse.unquote(urllib.parse.urlparse(photo_url).path)).name
+        if STANDARD_PHOTO_FILENAME_RE.fullmatch(filename):
+            return filename
+        extension = Path(filename).suffix.lower()
+        if not licence.isdigit() or not extension:
+            raise FederationExtranetExportError(
+                f"Cannot derive a local filename for FFCK photo {photo_url}."
+            )
+        return f"{licence}{extension}"
 
     def _perform_login_step(self) -> None:
         login_url = self._as_url(self.login_path)

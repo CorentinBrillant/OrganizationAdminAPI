@@ -14,6 +14,10 @@ def member_certificat_upload_to(instance, filename):
     return f"members/certificats/{uuid.uuid4().hex}{extension}"
 
 
+def ffck_photo_upload_to(instance, filename):
+    return f"members/ffck_photos/{uuid.uuid4().hex}.enc"
+
+
 class EncryptedFileBlobMixin(models.Model):
     class Meta:
         abstract = True
@@ -240,6 +244,12 @@ class FfckExportRow(models.Model):
     nom = encrypt(models.CharField(max_length=255, blank=True, default=""))
     categorie = encrypt(models.CharField(max_length=120, blank=True, default=""))
     certificat = encrypt(models.CharField(max_length=500, blank=True, default=""))
+    photo = models.FileField(
+        upload_to=ffck_photo_upload_to,
+        blank=True,
+        default="",
+    )
+    photo_original_name = models.CharField(max_length=255, blank=True, default="")
     member = models.ForeignKey(
         Member,
         on_delete=models.SET_NULL,

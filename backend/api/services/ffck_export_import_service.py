@@ -60,6 +60,8 @@ class FfckExportImportService:
         )
 
         row_models = []
+        photo_paths = extraction.photo_paths or {}
+        photo_original_names = extraction.photo_original_names or {}
         for idx, cells in enumerate(data_rows, start=1):
             row_map = _row_to_dict(header, cells)
             if not any(str(v).strip() for v in row_map.values()):
@@ -91,24 +93,27 @@ class FfckExportImportService:
                 certificat = f"{type_certificat} ({certif_end})"
             elif certif_end:
                 certificat = certif_end
+            licence = _pick_first(
+                row_map,
+                [
+                    "code adherent",
+                    "code adhérent",
+                    "n licence",
+                    "numero licence",
+                    "num licence",
+                ],
+            )
 
             row_models.append(
                 FfckExportRow(
                     ffck_export=ffck_export,
                     row_index=idx,
-                    licence=_pick_first(
-                        row_map,
-                        [
-                            "code adherent",
-                            "code adhérent",
-                            "n licence",
-                            "numero licence",
-                            "num licence",
-                        ],
-                    ),
+                    licence=licence,
                     nom=nom,
                     categorie=categorie,
                     certificat=certificat,
+                    photo=photo_paths.get(licence, ""),
+                    photo_original_name=photo_original_names.get(licence, ""),
                     raw_row=row_map,
                 )
             )

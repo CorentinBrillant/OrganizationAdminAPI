@@ -1,6 +1,7 @@
 import hashlib
 import ipaddress
 import json
+import mimetypes
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
@@ -109,7 +110,7 @@ def _build_xlsx(headers: list[str], rows: list[list[str]]) -> bytes:
     worksheet_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f'<sheetData>{"".join(worksheet_rows)}</sheetData>'
+        f"<sheetData>{''.join(worksheet_rows)}</sheetData>"
         "</worksheet>"
     )
     workbook_xml = (
@@ -1398,6 +1399,7 @@ def ffck_latest_rows(request):
             "nom": row.nom,
             "categorie": row.categorie,
             "certificat": row.certificat,
+            "photo": row.photo.name,
             "member_id": row.member_id,
             "raw_row": _coerce_dict(row.raw_row),
         }
@@ -1421,6 +1423,36 @@ def ffck_latest_rows(request):
             },
         }
     )
+
+
+@require_GET
+def ffck_row_photo_download(request, row_id):
+    row = get_object_or_404(FfckExportRow, id=row_id)
+    if not row.photo:
+        return JsonResponse({"error": "No FFCK photo for this row."}, status=404)
+
+    filename = row.photo_original_name or Path(row.photo.name).name
+    try:
+        with row.photo.open("rb") as photo_file:
+            content = photo_file.read()
+    except FileNotFoundError:
+        return JsonResponse({"error": "FFCK photo file not found."}, status=404)
+
+    if row.photo.name.endswith(".enc"):
+        fernet, key_error = _build_member_certificat_fernet()
+        if key_error:
+            return JsonResponse({"error": key_error}, status=500)
+        try:
+            content = fernet.decrypt(content)
+        except InvalidToken:
+            return JsonResponse({"error": "Failed to decrypt FFCK photo file."}, status=500)
+
+    response = HttpResponse(
+        content,
+        content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @require_GET
@@ -1607,8 +1639,9 @@ def federation_extranet_extract_excel(request):
             export_form_path=getattr(settings, "FFCK_EXTRANET_EXPORT_FORM_PATH", ""),
             export_extra_payload=getattr(settings, "FFCK_EXTRANET_EXPORT_EXTRA_PAYLOAD", ""),
             structure_select_path=getattr(settings, "FFCK_EXTRANET_STRUCTURE_SELECT_PATH", ""),
+            member_page_path=getattr(settings, "FFCK_EXTRANET_MEMBER_PAGE_PATH", ""),
         )
-        extraction = service.extract_excel()
+        extraction = service.extract_excel(download_member_photos=campaign is not None)
 
         import_summary = None
         if campaign is not None:

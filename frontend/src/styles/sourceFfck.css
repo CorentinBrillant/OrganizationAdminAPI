@@ -62,6 +62,7 @@
 .ffck-source-table th { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; vertical-align: top; }
 .ffck-source-table td[contenteditable='true'] { cursor: text; }
 .ffck-source-table td[contenteditable='true']:focus { outline: 2px solid color-mix(in oklch, var(--accent) 45%, white); outline-offset: -2px; background: color-mix(in oklch, var(--accent) 7%, var(--surface)); }
+.ffck-source-table td a { color: var(--accent); font-weight: 650; text-underline-offset: 0.18em; }
 .ffck-source-column-head { display: grid; gap: 6px; min-width: 150px; }
 .ffck-source-column-head div { display: flex; gap: 4px; }
 .ffck-source-column-head button { background: var(--surface); padding: 4px 6px; font-size: 0.7rem; line-height: 1; cursor: pointer; }

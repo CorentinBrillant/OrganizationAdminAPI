@@ -14,6 +14,7 @@ vi.mock('../../auth/token', () => ({
 import {
   createCampaign,
   exportCampaignMembers,
+  fetchCampaignFfckLatestRows,
   importCampaignFfckExport,
   fetchCampaignMembers,
   fetchCampaigns,
@@ -118,6 +119,37 @@ describe('campaigns api', () => {
 
     expect(result).toEqual([])
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it("conserve le chemin de photo FFCK retourne par l'API", async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        rows: [
+          {
+            id: 7,
+            row_index: 1,
+            licence: 'FFCK-7',
+            nom: 'Alice Martin',
+            categorie: 'Senior',
+            certificat: 'Loisir',
+            photo: 'members/ffck_photos/FFCK-7.jpg',
+            member_id: null,
+            raw_row: {},
+          },
+        ],
+        export: null,
+      }),
+    })
+
+    await expect(fetchCampaignFfckLatestRows(42)).resolves.toMatchObject({
+      rows: [
+        {
+          id: 7,
+          photo: 'members/ffck_photos/FFCK-7.jpg',
+        },
+      ],
+    })
   })
 
   it('exporte les lignes affichées en XLSX avec le jeton CSRF', async () => {

@@ -32,6 +32,17 @@ export default function SourceFfckPage() {
     : 'Fichier chargé: —'
   const error = importError || loadingError
 
+  function renderCell(row, column) {
+    if (column.key !== 'photo_ffck') return row[column.key]
+    if (!row.photo_ffck) return '—'
+
+    return (
+      <a href={`/api/ffck/rows/${row.id}/photo/download/`} target="_blank" rel="noreferrer">
+        Télécharger
+      </a>
+    )
+  }
+
   function updateColumns(index, direction) {
     const target = index + direction
     if (target < 0 || target >= columns.length) return
@@ -104,12 +115,12 @@ export default function SourceFfckPage() {
           {loadingStatus !== 'loading' && filteredRows.map((row) => <tr key={row.id}>{columns.map((column) => (
             <td
               key={column.key}
-              contentEditable
+              contentEditable={column.key !== 'photo_ffck'}
               suppressContentEditableWarning
               onDoubleClick={(event) => event.currentTarget.focus()}
               onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }}
               onBlur={(event) => updateCell(row.id, column.key, event.currentTarget.textContent.trim())}
-            >{row[column.key]}</td>
+            >{renderCell(row, column)}</td>
           ))}</tr>)}</tbody>
         </table>
       </section>

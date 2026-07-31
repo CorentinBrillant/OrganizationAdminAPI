@@ -1,7 +1,7 @@
 COMPOSE_LOCAL := docker compose --env-file .env.local -f docker-compose.local.yml
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.prod.yml
 
-.PHONY: build up down restart logs ps clean test-backend test-frontend format-backend lint-frontend precommit-install scan-secrets up-build up-prod down-prod logs-prod ps-prod download-ffck-photos
+.PHONY: build up down restart logs ps clean test-backend test-frontend format-backend lint-frontend precommit-install scan-secrets up-build up-prod down-prod logs-prod ps-prod
 
 up-build:
 	$(COMPOSE_LOCAL) up --build -d
@@ -22,9 +22,6 @@ logs-local:
 
 ps-local:
 	$(COMPOSE_LOCAL) ps
-
-download-ffck-photos:
-	$(COMPOSE_LOCAL) exec backend python manage.py download_ffck_photos --output-dir /app/media/members/ffck_photos --verbose --save-page
 
 up-prod:
 	$(COMPOSE_PROD) up -d --build --remove-orphans

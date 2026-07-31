@@ -707,7 +707,7 @@ export default function DashboardFusionPage() {
 		if (column.key === "certificat") return renderCertificateControl(row);
 		if (
 			["autorisation_parentale", "photo"].includes(column.key) &&
-			/^https?:\/\//i.test(value)
+			(/^(?:https?:)?\/\//i.test(value) || value.startsWith("/api/"))
 		) {
 			return (
 				<a href={value} target="_blank" rel="noreferrer">
@@ -848,7 +848,7 @@ export default function DashboardFusionPage() {
 			);
 		if (
 			["autorisation_parentale", "photo"].includes(column.key) &&
-			/^https?:\/\//i.test(value)
+			(/^(?:https?:)?\/\//i.test(value) || value.startsWith("/api/"))
 		) {
 			return (
 				<td key={column.key} className={columnClassName}>

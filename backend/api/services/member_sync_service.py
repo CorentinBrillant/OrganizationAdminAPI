@@ -1,5 +1,5 @@
-import re
 import json
+import re
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -278,6 +278,12 @@ def _extract_ffck_row_identity(row: FfckExportRow) -> tuple[str, str]:
     return first_name, last_name
 
 
+def _ffck_photo_download_url(row: FfckExportRow) -> str:
+    if not row.photo:
+        return ""
+    return f"/api/ffck/rows/{row.id}/photo/download/"
+
+
 @dataclass
 class FfckMemberSyncService:
     campaign: Campaign
@@ -373,6 +379,10 @@ class FfckMemberSyncService:
             if member.ffck_licence_type != ffck_licence_type:
                 member.ffck_licence_type = ffck_licence_type
                 update_fields.append("ffck_licence_type")
+            ffck_photo_url = _ffck_photo_download_url(row)
+            if ffck_photo_url and not str(member.photo or "").strip():
+                member.photo = ffck_photo_url
+                update_fields.append("photo")
 
             if update_fields:
                 member.save(update_fields=update_fields)

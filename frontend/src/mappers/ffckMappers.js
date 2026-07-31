@@ -5,6 +5,7 @@ export const sourceColumns = [
   { key: 'type_certificat', label: 'Type certificat' },
   { key: 'expiration', label: 'Expiration' },
   { key: 'type_licence', label: 'Type de licence' },
+  { key: 'photo_ffck', label: 'Photo FFCK' },
 ]
 
 export function mapFfckRowToSourceRow(row, index = 0) {
@@ -22,6 +23,7 @@ export function mapFfckRowToSourceRow(row, index = 0) {
     type_certificat: String(rawRow['type certificat'] || '').trim(),
     expiration: String(rawRow['date de fin certificat medical'] || '').trim(),
     type_licence: String(rawRow['type licence'] || '').trim(),
+    photo_ffck: String(row?.photo || '').trim(),
   }
 }
 

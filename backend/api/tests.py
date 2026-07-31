@@ -14,7 +14,6 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from .auth import create_user_token
@@ -694,6 +693,7 @@ class FfckSyncMembersViewTests(AuthenticatedApiTestCase):
             nom="VAN Cyril",
             categorie="Senior",
             certificat="Loisir",
+            photo="members/ffck_photos/0123456789abcdef0123456789abcdef.enc",
             raw_row={
                 "nom": "VAN",
                 "prenom": "Cyril",
@@ -717,6 +717,7 @@ class FfckSyncMembersViewTests(AuthenticatedApiTestCase):
         campaign.refresh_from_db()
         self.assertEqual(ffck_row.member_id, member.id)
         self.assertEqual(member.ffck_licence, "528768")
+        self.assertEqual(member.photo, f"/api/ffck/rows/{ffck_row.id}/photo/download/")
         self.assertIsNotNone(campaign.last_merge)
 
 
@@ -1674,177 +1675,130 @@ class FederationExtranetServiceTests(TestCase):
 
         self.assertEqual(code, "94287082")
 
-
-class DownloadFfckPhotosCommandTests(TestCase):
-    @patch("api.management.commands.download_ffck_photos.Command._build_service")
-    def test_downloads_unique_photo_urls(self, mock_build_service):
+    def test_download_member_photos_reuses_existing_file(self):
         from api.services.federation_extranet_service import _HTTPPayload
 
-        service = mock_build_service.return_value
-        service.totp_path = "/totp"
-        service.token_type = "Bearer"
-        service._as_url.return_value = "https://extranet.ffck.org/totp"
-        service._fetch_token.return_value = "token"
-        service._request.side_effect = [
-            _HTTPPayload(
-                headers={},
-                body=(
-                    b'<meta name="csrf-token" content="csrf-token-value">'
-                    b'<form id="filtresLicenciesStructure">'
-                    b'<select name="saison"><option value="2026" selected="selected">2026</option></select>'
-                    b'<select name="etat"><option value="*A" selected="selected">Active</option></select>'
-                    b'<input name="structure" type="hidden" value="2857">'
-                    b'<input name="haut_niveau" type="checkbox" value="1">'
-                    b'</form>'
-                    b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
-                    b"licencies/ajax'</script>"
-                ),
+        service = FederationExtranetService(
+            base_url="https://extranet.ffck.org",
+            login_path="/login",
+            totp_path="/totp",
+            export_path="/exports/members.xlsx",
+            username="demo-user",
+            password="demo-password",
+            totp_secret="JBSWY3DPEHPK3PXP",
+            member_page_path="/structures/fiche/2857/licencies",
+        )
+        page = _HTTPPayload(
+            headers={},
+            body=(
+                b'<meta name="csrf-token" content="csrf-token-value">'
+                b'<form id="filtresLicenciesStructure">'
+                b'<input name="structure" type="hidden" value="2857">'
+                b"</form>"
+                b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
+                b"licencies/ajax'</script>"
             ),
-            _HTTPPayload(
-                headers={},
-                body=json.dumps(
-                    {
-                        "total": 2,
-                        "data": [
-                            {
-                                "code_adherent": "100001",
-                                "photo_url": (
-                                    "https://extranet.ffck.org/storage/photos_personnes/1_a.png"
-                                )
-                            },
-                            {
-                                "code_adherent": "100002",
-                                "photo_url": (
-                                    "https://extranet.ffck.org/storage/photos_personnes/opaque-file.jpg"
-                                )
-                            },
-                        ],
-                    }
-                ).encode(),
-            ),
-            _HTTPPayload(headers={}, body=b"first-photo"),
-            _HTTPPayload(headers={}, body=b"second-photo"),
-        ]
-
-        with tempfile.TemporaryDirectory() as directory:
-            call_command("download_ffck_photos", output_dir=directory)
-
-            self.assertEqual((Path(directory) / "1_a.png").read_bytes(), b"first-photo")
-            self.assertEqual((Path(directory) / "100002.jpg").read_bytes(), b"second-photo")
-
-        service._perform_login_step.assert_called_once_with()
-        service._perform_totp_step.assert_called_once_with()
-        service._select_structure_step.assert_called_once_with()
-        self.assertEqual(service._request.call_count, 4)
-        self.assertEqual(
-            service._request.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer token"
         )
-        self.assertIn(
-            "licencies/ajax?draw=1&start=0&length=50",
-            service._request.call_args_list[1].args[0],
-        )
-        self.assertIn(
-            "columns%5B0%5D%5Bdata%5D=code_adherent",
-            service._request.call_args_list[1].args[0],
-        )
-        self.assertIn(
-            "columns%5B23%5D%5Bdata%5D=representant_legal_2",
-            service._request.call_args_list[1].args[0],
-        )
-        self.assertIn("filtres%5Bsaison%5D=2026", service._request.call_args_list[1].args[0])
-        self.assertIn("filtres%5Betat%5D=%2AA", service._request.call_args_list[1].args[0])
-        self.assertIn("filtres%5Bstructure%5D=2857", service._request.call_args_list[1].args[0])
-        self.assertEqual(
-            service._request.call_args_list[1].kwargs["headers"]["X-CSRF-TOKEN"], "csrf-token-value"
-        )
-        self.assertEqual(
-            service._request.call_args_list[1].kwargs["headers"]["X-Requested-With"],
-            "XMLHttpRequest",
-        )
-
-    @patch("api.management.commands.download_ffck_photos.Command._build_service")
-    def test_skips_an_existing_renamed_photo(self, mock_build_service):
-        from api.services.federation_extranet_service import _HTTPPayload
-
-        service = mock_build_service.return_value
-        service.totp_path = "/totp"
-        service.token_type = "Bearer"
-        service._as_url.return_value = "https://extranet.ffck.org/totp"
-        service._fetch_token.return_value = ""
-        service._request.side_effect = [
-            _HTTPPayload(
-                headers={},
-                body=(
-                    b'<meta name="csrf-token" content="csrf-token-value">'
-                    b'<form id="filtresLicenciesStructure">'
-                    b'<input name="structure" type="hidden" value="2857">'
-                    b'</form>'
-                    b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
-                    b"licencies/ajax'</script>"
-                ),
-            ),
-            _HTTPPayload(
-                headers={},
-                body=json.dumps(
-                    {
-                        "total": 1,
-                        "data": [
-                            {
-                                "code_adherent": "100003",
-                                "photo_url": (
-                                    "https://extranet.ffck.org/storage/photos_personnes/opaque-file.jpg"
-                                ),
-                            }
-                        ],
-                    }
-                ).encode(),
-            ),
-        ]
-
-        with tempfile.TemporaryDirectory() as directory:
-            (Path(directory) / "100003.jpg").write_bytes(b"existing-photo")
-            call_command("download_ffck_photos", output_dir=directory)
-
-        self.assertEqual(service._request.call_count, 2)
-
-    @patch("api.management.commands.download_ffck_photos.Command._build_service")
-    def test_accepts_a_raw_json_list_from_ajax_endpoint(self, mock_build_service):
-        from api.services.federation_extranet_service import _HTTPPayload
-
-        service = mock_build_service.return_value
-        service.totp_path = "/totp"
-        service.token_type = "Bearer"
-        service._as_url.return_value = "https://extranet.ffck.org/totp"
-        service._fetch_token.return_value = ""
-        service._request.side_effect = [
-            _HTTPPayload(
-                headers={},
-                body=(
-                    b'<meta name="csrf-token" content="csrf-token-value">'
-                    b'<form id="filtresLicenciesStructure">'
-                    b'<input name="structure" type="hidden" value="2857">'
-                    b'</form>'
-                    b"<script>url: 'https://extranet.ffck.org/structures/fiche/2857/"
-                    b"licencies/ajax'</script>"
-                ),
-            ),
-            _HTTPPayload(
-                headers={},
-                body=json.dumps(
-                    [
+        rows = _HTTPPayload(
+            headers={},
+            body=json.dumps(
+                {
+                    "total": 1,
+                    "data": [
                         {
-                            "photo_url": (
-                                "https://extranet.ffck.org/storage/photos_personnes/3_c.png"
-                            )
+                            "code_adherent": "100003",
+                            "photo_url": "https://extranet.ffck.org/storage/photos_personnes/opaque.jpg",
                         }
-                    ]
-                ).encode(),
-            ),
-        ]
+                    ],
+                }
+            ).encode(),
+        )
 
-        call_command("download_ffck_photos", dry_run=True)
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(
+                MEDIA_ROOT=media_root,
+                MEMBER_CERTIFICAT_ENCRYPTION_KEY="QWW2l9vX1u3v9rOnZD9oAg-sdWvd8v5CPGK8_PpuXIo=",
+            ):
+                with patch.object(
+                    service,
+                    "_request",
+                    side_effect=[page, rows, _HTTPPayload(headers={}, body=b"photo")],
+                ) as request:
+                    paths, original_names = service.download_member_photos({})
 
-        self.assertEqual(service._request.call_count, 2)
+                stored_path = paths["100003"]
+                destination = Path(media_root) / stored_path
+                self.assertRegex(destination.name, r"^[0-9a-f]{32}\.enc$")
+                self.assertNotEqual(destination.read_bytes(), b"photo")
+                self.assertEqual(
+                    Fernet(settings.MEMBER_CERTIFICAT_ENCRYPTION_KEY.encode("utf-8")).decrypt(
+                        destination.read_bytes()
+                    ),
+                    b"photo",
+                )
+                self.assertEqual(original_names, {"100003": "100003.jpg"})
+                self.assertEqual(request.call_count, 3)
+
+                campaign = Campaign.objects.create(
+                    title="Campagne photo existante",
+                    status="active",
+                    helloasso_api_key="dummy",
+                    helloasso_form_slug="campagne-photo-existante",
+                )
+                ffck_export = FfckExport.objects.create(campaign=campaign, export_path="/exports")
+                FfckExportRow.objects.create(
+                    ffck_export=ffck_export,
+                    row_index=1,
+                    licence="100003",
+                    photo=stored_path,
+                    photo_original_name="100003.jpg",
+                )
+
+                with patch.object(service, "_request", side_effect=[page, rows]) as request:
+                    paths, original_names = service.download_member_photos({})
+
+                self.assertEqual(paths, {"100003": stored_path})
+                self.assertEqual(original_names, {"100003": "100003.jpg"})
+                self.assertEqual(request.call_count, 2)
+
+    def test_existing_unencrypted_photo_is_migrated_without_redownloading(self):
+        campaign = Campaign.objects.create(
+            title="Campagne photo historique",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-photo-historique",
+        )
+        ffck_export = FfckExport.objects.create(campaign=campaign, export_path="/exports")
+        row = FfckExportRow.objects.create(
+            ffck_export=ffck_export,
+            row_index=1,
+            licence="100004",
+            photo="members/ffck_photos/100004.jpg",
+        )
+
+        with tempfile.TemporaryDirectory() as media_root:
+            legacy_path = Path(media_root) / row.photo.name
+            legacy_path.parent.mkdir(parents=True)
+            legacy_path.write_bytes(b"legacy-photo")
+
+            with override_settings(
+                MEDIA_ROOT=media_root,
+                MEMBER_CERTIFICAT_ENCRYPTION_KEY="QWW2l9vX1u3v9rOnZD9oAg-sdWvd8v5CPGK8_PpuXIo=",
+            ):
+                paths = FederationExtranetService._existing_photo_paths_by_licence()
+
+                row.refresh_from_db()
+                encrypted_path = Path(media_root) / row.photo.name
+                self.assertRegex(encrypted_path.name, r"^[0-9a-f]{32}\.enc$")
+                self.assertFalse(legacy_path.exists())
+                self.assertEqual(row.photo_original_name, "100004.jpg")
+                self.assertEqual(paths["100004"], (row.photo.name, "100004.jpg"))
+                self.assertEqual(
+                    Fernet(settings.MEMBER_CERTIFICAT_ENCRYPTION_KEY.encode("utf-8")).decrypt(
+                        encrypted_path.read_bytes()
+                    ),
+                    b"legacy-photo",
+                )
 
 
 class FederationExtranetExtractExcelViewTests(AuthenticatedApiTestCase):
@@ -1879,6 +1833,7 @@ class FederationExtranetExtractExcelViewTests(AuthenticatedApiTestCase):
             'attachment; filename="members.xlsx"',
         )
         self.assertEqual(response.content, b"fake-xlsx-content")
+        mock_service.extract_excel.assert_called_once_with(download_member_photos=False)
 
     @patch("api.views.FederationExtranetService")
     def test_extract_excel_returns_502_on_auth_error(self, mock_service_class):
@@ -1944,6 +1899,7 @@ class FfckLatestRowsViewTests(AuthenticatedApiTestCase):
             nom="Alice Dupont",
             categorie="Senior",
             certificat="Loisir",
+            photo="members/ffck_photos/NEW1.jpg",
             raw_row={"code adherent": "NEW1"},
         )
         FfckExportRow.objects.create(
@@ -1965,6 +1921,7 @@ class FfckLatestRowsViewTests(AuthenticatedApiTestCase):
         self.assertEqual(body["export"]["filename"], "latest.xlsx")
         self.assertEqual(len(body["rows"]), 2)
         self.assertEqual(body["rows"][0]["licence"], "NEW1")
+        self.assertEqual(body["rows"][0]["photo"], "members/ffck_photos/NEW1.jpg")
         self.assertEqual(body["rows"][1]["licence"], "NEW2")
 
     def test_returns_empty_when_no_export_for_campaign(self):
@@ -1988,6 +1945,51 @@ class FfckLatestRowsViewTests(AuthenticatedApiTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json().get("error"), "campaignId must be an integer.")
+
+
+class FfckPhotoDownloadViewTests(AuthenticatedApiTestCase):
+    def test_downloads_the_photo_for_an_export_row(self):
+        campaign = Campaign.objects.create(
+            title="Campagne photo FFCK",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-photo-ffck",
+        )
+        ffck_export = FfckExport.objects.create(
+            campaign=campaign,
+            source="licences_excel",
+            export_path="/extractions/licences/excel",
+            export_method="POST",
+            filename="export.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_sha256="f" * 64,
+        )
+        row = FfckExportRow.objects.create(
+            ffck_export=ffck_export,
+            row_index=1,
+            licence="187581",
+            photo="members/ffck_photos/27c860c9ac46462f98f0f6bd22ca1bf1.enc",
+            photo_original_name="187581_photo.png",
+        )
+
+        with tempfile.TemporaryDirectory() as media_root:
+            photo_path = Path(media_root) / row.photo.name
+            photo_path.parent.mkdir(parents=True)
+            encrypted_photo = Fernet(b"QWW2l9vX1u3v9rOnZD9oAg-sdWvd8v5CPGK8_PpuXIo=").encrypt(
+                b"png-photo"
+            )
+            photo_path.write_bytes(encrypted_photo)
+
+            with override_settings(
+                MEDIA_ROOT=media_root,
+                MEMBER_CERTIFICAT_ENCRYPTION_KEY="QWW2l9vX1u3v9rOnZD9oAg-sdWvd8v5CPGK8_PpuXIo=",
+            ):
+                response = self.client.get(f"/api/ffck/rows/{row.id}/photo/download/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertIn("187581_photo.png", response["Content-Disposition"])
+        self.assertEqual(response.content, b"png-photo")
 
 
 @skipUnless(
@@ -2134,6 +2136,8 @@ class FfckExportImportServiceTests(TestCase):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             content=xlsx_content,
             token="",
+            photo_paths={"12345": "members/ffck_photos/0123456789abcdef0123456789abcdef.enc"},
+            photo_original_names={"12345": "12345.jpg"},
         )
 
         summary = FfckExportImportService(campaign=campaign).import_extraction(
@@ -2156,7 +2160,13 @@ class FfckExportImportServiceTests(TestCase):
         self.assertEqual(rows[0].nom, "Dupont Alice")
         self.assertEqual(rows[0].categorie, "Senior")
         self.assertEqual(rows[0].certificat, "Loisir")
+        self.assertEqual(
+            rows[0].photo.name,
+            "members/ffck_photos/0123456789abcdef0123456789abcdef.enc",
+        )
+        self.assertEqual(rows[0].photo_original_name, "12345.jpg")
         self.assertEqual(rows[1].licence, "67890")
+        self.assertFalse(rows[1].photo)
         self.assertEqual(rows[1].nom, "Martin Bob")
 
 
@@ -2195,6 +2205,7 @@ class FfckMemberSyncServiceTests(TestCase):
             nom="VAN Cyril",
             categorie="Senior",
             certificat="Loisir",
+            photo="members/ffck_photos/0123456789abcdef0123456789abcdef.enc",
             raw_row={
                 "nom": "VAN",
                 "prenom": "Cyril",
@@ -2213,6 +2224,7 @@ class FfckMemberSyncServiceTests(TestCase):
         self.assertEqual(member.ffck_certificat, "Questionnaire de sante")
         self.assertEqual(member.ffck_certificat_expiration, "2027-02-01")
         self.assertEqual(member.ffck_licence_type, "Competition")
+        self.assertEqual(member.photo, f"/api/ffck/rows/{ffck_row.id}/photo/download/")
         self.assertEqual(summary["linked_rows"], 1)
         self.assertEqual(summary["updated_members"], 1)
         self.assertEqual(summary["skipped_rows"], 0)
@@ -2292,6 +2304,7 @@ class FfckMemberSyncServiceTests(TestCase):
             name="Dupont",
             email="alice@example.com",
             ffck_licence="",
+            photo="https://docs.example.com/alice-photo.jpg",
         )
         ffck_export = FfckExport.objects.create(
             campaign=campaign,
@@ -2313,12 +2326,15 @@ class FfckMemberSyncServiceTests(TestCase):
             categorie="",
             certificat="",
             member=kept_member,
+            photo="members/ffck_photos/abcdef0123456789abcdef0123456789.enc",
             raw_row={"nom": "Dupont", "prenom": "Alyce"},
         )
 
         summary = FfckMemberSyncService(campaign=campaign).sync_latest_export()
 
         ffck_row.refresh_from_db()
+        kept_member.refresh_from_db()
         self.assertEqual(ffck_row.member_id, kept_member.id)
+        self.assertEqual(kept_member.photo, "https://docs.example.com/alice-photo.jpg")
         self.assertEqual(summary["created_members"], 0)
         self.assertEqual(Member.objects.filter(campaign=campaign).count(), 1)

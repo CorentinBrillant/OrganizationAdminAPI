@@ -182,6 +182,7 @@ export async function fetchCampaignFfckLatestRows(campaignId, options = {}) {
       nom: String(row?.nom || '').trim(),
       categorie: String(row?.categorie || '').trim(),
       certificat: String(row?.certificat || '').trim(),
+      photo: String(row?.photo || '').trim(),
       member_id: Number(row?.member_id) || null,
       raw_row: row?.raw_row && typeof row.raw_row === 'object' ? row.raw_row : {},
     })),

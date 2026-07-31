@@ -22,6 +22,7 @@ from .views import (
     campaigns,
     federation_extranet_extract_excel,
     ffck_latest_rows,
+    ffck_row_photo_download,
     ffck_sync_campaign_members,
     helloasso_import_campaign,
     helloasso_latest_items,
@@ -111,6 +112,11 @@ urlpatterns = [
         "campaigns/sync-members/", _protected(sync_campaign_members), name="campaigns-sync-members"
     ),
     path("ffck/rows/latest/", _protected(ffck_latest_rows), name="ffck-latest-rows"),
+    path(
+        "ffck/rows/<int:row_id>/photo/download/",
+        _protected(ffck_row_photo_download),
+        name="ffck-row-photo-download",
+    ),
     path("ffck/sync-members/", _protected(ffck_sync_campaign_members), name="ffck-sync-members"),
     path("badges/rows/latest/", _protected(badge_latest_rows), name="badges-latest-rows"),
     path("badges/import/", _protected(badge_import_campaign), name="badges-import-campaign"),

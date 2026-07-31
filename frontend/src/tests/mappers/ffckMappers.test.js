@@ -8,6 +8,7 @@ describe('mapFfckRowToSourceRow', () => {
       id: 12,
       licence: 'fallback',
       nom: 'Jean Dupont',
+      photo: 'members/ffck_photos/FFCK-1.jpg',
       raw_row: {
         nom: 'Dupont',
         prenom: 'Jeanne',
@@ -24,6 +25,7 @@ describe('mapFfckRowToSourceRow', () => {
       type_certificat: 'Attestation',
       expiration: '2027-01-01',
       type_licence: 'Compétition',
+      photo_ffck: 'members/ffck_photos/FFCK-1.jpg',
     })
   })
 
