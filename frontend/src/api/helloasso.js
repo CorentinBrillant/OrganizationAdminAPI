@@ -8,7 +8,9 @@ async function fetchJson(url, options = {}) {
   const payload = await response.json().catch(() => ({}))
 
   if (!response.ok) {
-    throw new Error(payload?.error || `Erreur HTTP ${response.status}`)
+    const error = new Error(payload?.error || `Erreur HTTP ${response.status}`)
+    error.code = String(payload?.code || '')
+    throw error
   }
 
   return payload
@@ -42,4 +44,12 @@ export async function importHelloAssoCampaign(campaignId, options = {}) {
     withDetails: String(options.withDetails ?? true),
   })
   return fetchJson(`/api/helloasso/import/?${params.toString()}`, { signal: options.signal })
+}
+
+export function startHelloAssoAuthorization() {
+  return fetchJson('/api/helloasso/authorization/start/')
+}
+
+export function fetchHelloAssoAuthorizationStatus(authorizationId) {
+  return fetchJson(`/api/helloasso/authorization/${encodeURIComponent(authorizationId)}/status/`)
 }

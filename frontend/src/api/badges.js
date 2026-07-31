@@ -59,3 +59,22 @@ export async function importBadgeFile(campaignId, file, options = {}) {
   })
   return readJson(response)
 }
+
+export async function exportBadgeOrders(campaignId) {
+  const normalizedCampaignId = Number(campaignId)
+  if (!Number.isFinite(normalizedCampaignId)) {
+    throw new Error('campaignId must be a number')
+  }
+
+  const response = await fetch(`/api/badges/export-orders/?campaignId=${encodeURIComponent(String(normalizedCampaignId))}`, {
+    headers: withApiAuthHeaders(),
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload?.error || `Erreur HTTP ${response.status}`)
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition')
+  const filename = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1] || 'badges-commande.xlsx'
+  return { blob: await response.blob(), filename }
+}

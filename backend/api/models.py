@@ -48,6 +48,23 @@ class Campaign(models.Model):
         return self.title
 
 
+class HelloAssoAuthorizationToken(models.Model):
+    client_key = models.CharField(max_length=64, unique=True)
+    access_token = encrypt(models.TextField(blank=True, default=""))
+    refresh_token = encrypt(models.TextField(blank=True, default=""))
+    access_token_expires_at = models.DateTimeField(null=True, blank=True)
+    organization_slug = encrypt(models.CharField(max_length=255, blank=True, default=""))
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class HelloAssoAuthorizationRequest(models.Model):
+    authorization_id = models.CharField(max_length=64, unique=True)
+    code_verifier = encrypt(models.TextField())
+    status = models.CharField(max_length=16, default="pending")
+    error = encrypt(models.TextField(blank=True, default=""))
+    expires_at = models.DateTimeField()
+
+
 class Member(models.Model):
     first_name = encrypt(models.CharField(max_length=150))
     name = encrypt(models.CharField(max_length=150))

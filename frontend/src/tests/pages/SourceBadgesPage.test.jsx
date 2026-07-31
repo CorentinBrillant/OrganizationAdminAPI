@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   dispatchMock,
+  exportBadgeOrdersMock,
   fetchBadgeLatestRowsMock,
   setPageFiltersMock,
   useDispatchMock,
   useSelectorMock,
 } = vi.hoisted(() => ({
   dispatchMock: vi.fn(),
+  exportBadgeOrdersMock: vi.fn(),
   fetchBadgeLatestRowsMock: vi.fn(),
   setPageFiltersMock: vi.fn(),
   useDispatchMock: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('react-redux', () => ({
 }))
 
 vi.mock('../../api/badges', () => ({
+  exportBadgeOrders: (...args) => exportBadgeOrdersMock(...args),
   fetchBadgeLatestRows: (...args) => fetchBadgeLatestRowsMock(...args),
   importBadgeFile: vi.fn(),
 }))
@@ -59,6 +62,7 @@ describe('SourceBadgesPage', () => {
       ],
       importMeta: { fetched_at: '2026-07-24T10:00:00Z' },
     })
+    exportBadgeOrdersMock.mockResolvedValue({ blob: new Blob(['badges']), filename: 'commande.xlsx' })
   })
 
   it('charge et affiche les lignes, KPI et statut de la campagne active', async () => {
@@ -80,5 +84,17 @@ describe('SourceBadgesPage', () => {
 
     expect(setPageFiltersMock).toHaveBeenCalledWith({ page: 'badges', filters: { search: 'lea' } })
     expect(dispatchMock).toHaveBeenCalledWith({ page: 'badges', filters: { search: 'lea' } })
+  })
+
+  it('propose l’export de la commande badges', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:badge-export')
+    URL.revokeObjectURL = vi.fn()
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    render(<SourceBadgesPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exporter commande badges' }))
+
+    await waitFor(() => expect(exportBadgeOrdersMock).toHaveBeenCalledWith(11))
+    clickSpy.mockRestore()
   })
 })

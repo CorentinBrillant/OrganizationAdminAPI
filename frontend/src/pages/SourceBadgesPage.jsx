@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
-import { fetchBadgeLatestRows, importBadgeFile } from '../api/badges'
+import { exportBadgeOrders, fetchBadgeLatestRows, importBadgeFile } from '../api/badges'
 import { loadCampaignMembers, setPageFilters } from '../store/campaignsSlice'
 import { formatApiDateTime } from '../mappers/ffckMappers'
 import '../styles/sourceBadges.css'
@@ -22,6 +22,7 @@ export default function SourceBadgesPage() {
   const [importMeta, setImportMeta] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [error, setError] = useState('')
 
   const loadRows = useCallback(async (signal) => {
@@ -75,6 +76,26 @@ export default function SourceBadgesPage() {
     }
   }
 
+  async function handleExport() {
+    if (!hasCampaign || isExporting) return
+
+    setIsExporting(true)
+    setError('')
+    try {
+      const { blob, filename } = await exportBadgeOrders(campaignId)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (nextError) {
+      setError(`Échec export badges: ${nextError.message || 'Erreur inconnue'}`)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <main className="badges-source">
       <section className="badges-source-panel">
@@ -82,11 +103,14 @@ export default function SourceBadgesPage() {
           <div>
             <h1 className="badges-source-title">Source Badges</h1>
             <p className={`badges-source-meta${error ? ' error' : ''}`} role={error ? 'alert' : undefined} aria-live="polite">
-              {isImporting ? 'Import badges en cours...' : error || status}
+              {isImporting ? 'Import badges en cours...' : isExporting ? 'Export badges en cours...' : error || status}
             </p>
           </div>
           <button type="button" className="badges-source-import" disabled={!hasCampaign || isImporting} onClick={() => inputRef.current?.click()}>
             Importer Excel badges
+          </button>
+          <button type="button" className="badges-source-export" disabled={!hasCampaign || isExporting} onClick={handleExport}>
+            {isExporting ? 'Export en cours...' : 'Exporter commande badges'}
           </button>
           <input ref={inputRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={handleFileChange} />
         </div>

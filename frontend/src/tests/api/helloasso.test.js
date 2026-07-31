@@ -8,7 +8,12 @@ vi.mock('../../auth/token', () => ({
   withApiAuthHeaders: withApiAuthHeadersMock,
 }))
 
-import { fetchHelloAssoLatestItems, importHelloAssoCampaign } from '../../api/helloasso'
+import {
+  fetchHelloAssoAuthorizationStatus,
+  fetchHelloAssoLatestItems,
+  importHelloAssoCampaign,
+  startHelloAssoAuthorization,
+} from '../../api/helloasso'
 
 describe('helloasso api', () => {
   beforeEach(() => {
@@ -33,5 +38,32 @@ describe('helloasso api', () => {
       signal: undefined,
       headers: { Authorization: 'Bearer test-token' },
     })
+  })
+
+  it('démarre et suit une autorisation HelloAsso', async () => {
+    global.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_id: 'authorization-id',
+          authorize_url: 'https://auth.helloasso.com/authorize',
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'success' }) })
+
+    await expect(startHelloAssoAuthorization()).resolves.toMatchObject({
+      authorization_id: 'authorization-id',
+    })
+    await expect(fetchHelloAssoAuthorizationStatus('authorization-id')).resolves.toEqual({
+      status: 'success',
+    })
+    expect(global.fetch).toHaveBeenNthCalledWith(1, '/api/helloasso/authorization/start/', {
+      headers: { Authorization: 'Bearer test-token' },
+    })
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/helloasso/authorization/authorization-id/status/',
+      { headers: { Authorization: 'Bearer test-token' } },
+    )
   })
 })

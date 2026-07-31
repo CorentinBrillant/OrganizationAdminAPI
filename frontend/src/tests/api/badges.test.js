@@ -8,7 +8,7 @@ vi.mock('../../auth/token', () => ({
   withApiAuthHeaders: withApiAuthHeadersMock,
 }))
 
-import { fetchBadgeLatestRows, importBadgeFile } from '../../api/badges'
+import { exportBadgeOrders, fetchBadgeLatestRows, importBadgeFile } from '../../api/badges'
 
 describe('badges api', () => {
   beforeEach(() => {
@@ -30,5 +30,19 @@ describe('badges api', () => {
     global.fetch.mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: 'Fichier invalide' }) })
 
     await expect(importBadgeFile(12, new File(['badges'], 'badges.xlsx'))).rejects.toThrow('Fichier invalide')
+  })
+
+  it('exporte la commande badges avec authentification', async () => {
+    const blob = new Blob(['badges'])
+    global.fetch.mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'attachment; filename="commande.xlsx"' },
+      blob: async () => blob,
+    })
+
+    await expect(exportBadgeOrders(12)).resolves.toEqual({ blob, filename: 'commande.xlsx' })
+    expect(global.fetch).toHaveBeenCalledWith('/api/badges/export-orders/?campaignId=12', {
+      headers: { Authorization: 'Bearer test-token' },
+    })
   })
 })

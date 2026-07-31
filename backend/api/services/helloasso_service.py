@@ -1,9 +1,11 @@
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 
 class HelloAssoConfigError(Exception):
@@ -14,6 +16,43 @@ class HelloAssoAPIError(Exception):
     """Raised when HelloAsso API returns an error."""
 
 
+class HelloAssoAuthorizationRequiredError(HelloAssoAPIError):
+    """Raised when an uploaded document requires a partner authorization."""
+
+
+def _is_helloasso_host(hostname: str | None) -> bool:
+    hostname = (hostname or "").lower()
+    return hostname == "helloasso.com" or hostname.endswith(".helloasso.com")
+
+
+class _DocumentRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, status_code, message, headers, new_url):
+        redirected_request = super().redirect_request(
+            request,
+            file_pointer,
+            status_code,
+            message,
+            headers,
+            new_url,
+        )
+        if redirected_request is None:
+            return None
+
+        destination = urllib.parse.urlparse(new_url)
+        if destination.scheme != "https":
+            return None
+        if not _is_helloasso_host(destination.hostname):
+            redirected_request.remove_header("Authorization")
+        return redirected_request
+
+
+@dataclass(frozen=True)
+class HelloAssoDocument:
+    content: bytes
+    content_type: str
+    content_disposition: str
+
+
 @dataclass
 class HelloAssoService:
     client_id: str
@@ -21,6 +60,11 @@ class HelloAssoService:
     token_url: str = "https://api.helloasso.com/oauth2/token"
     api_base_url: str = "https://api.helloasso.com/v5"
     default_page_size: int = 100
+    access_token: str = ""
+    refresh_token: str = ""
+    access_token_expires_at: datetime | None = None
+    _access_token: str = field(default="", init=False, repr=False)
+    _access_token_expires_at: float = field(default=0, init=False, repr=False)
 
     def _base_headers(self) -> dict:
         user_agent = os.getenv(
@@ -55,13 +99,30 @@ class HelloAssoService:
             raise HelloAssoAPIError(f"HelloAsso network error: {exc.reason}") from exc
 
     def get_access_token(self) -> str:
-        body = urllib.parse.urlencode(
+        if self._access_token and time.monotonic() < self._access_token_expires_at:
+            return self._access_token
+
+        if self.access_token and self.access_token_expires_at:
+            from django.utils import timezone
+
+            if self.access_token_expires_at > timezone.now() + timedelta(seconds=60):
+                self._access_token = self.access_token
+                self._access_token_expires_at = time.monotonic() + 60
+                return self._access_token
+
+        if self.refresh_token:
+            return self.refresh_access_token()
+
+        return self._request_access_token(
             {
                 "grant_type": "client_credentials",
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
             }
-        ).encode("utf-8")
+        )["access_token"]
+
+    def _request_access_token(self, fields: dict[str, str]) -> dict:
+        body = urllib.parse.urlencode(fields).encode("utf-8")
 
         request = urllib.request.Request(
             self.token_url,
@@ -77,7 +138,95 @@ class HelloAssoService:
         token = payload.get("access_token")
         if not token:
             raise HelloAssoAPIError("No access_token returned by HelloAsso.")
-        return token
+        try:
+            expires_in = int(payload.get("expires_in", 0))
+        except (TypeError, ValueError):
+            expires_in = 0
+        self.access_token = str(token)
+        refresh_token = payload.get("refresh_token")
+        if refresh_token:
+            self.refresh_token = str(refresh_token)
+        self._access_token_expires_at = time.monotonic() + max(0, expires_in - 60)
+        self._access_token = self.access_token
+        from django.utils import timezone
+
+        self.access_token_expires_at = timezone.now() + timedelta(seconds=expires_in)
+        return {
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "expires_in": expires_in,
+            "organization_slug": str(payload.get("organization_slug") or ""),
+        }
+
+    def refresh_access_token(self) -> str:
+        if not self.refresh_token:
+            raise HelloAssoAuthorizationRequiredError("HelloAsso authorization is required.")
+        return self._request_access_token(
+            {
+                "grant_type": "refresh_token",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "refresh_token": self.refresh_token,
+            }
+        )["access_token"]
+
+    def exchange_authorization_code(
+        self, *, code: str, redirect_uri: str, code_verifier: str
+    ) -> dict:
+        if not code or not redirect_uri or not code_verifier:
+            raise HelloAssoConfigError(
+                "Authorization code, redirect URI and PKCE verifier are required."
+            )
+        return self._request_access_token(
+            {
+                "grant_type": "authorization_code",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+            }
+        )
+
+    def download_document(self, url: str) -> HelloAssoDocument:
+        parsed_url = urllib.parse.urlparse(str(url or "").strip())
+        hostname = (parsed_url.hostname or "").lower()
+        if (
+            parsed_url.scheme != "https"
+            or not hostname
+            or not _is_helloasso_host(hostname)
+        ):
+            raise HelloAssoAPIError("Document URL must use HTTPS on a HelloAsso domain.")
+
+        token = self.get_access_token()
+        request = urllib.request.Request(
+            parsed_url.geturl(),
+            method="GET",
+            headers={
+                **self._base_headers(),
+                "Accept": "*/*",
+                "Authorization": f"Bearer {token}",
+            },
+        )
+        try:
+            opener = urllib.request.build_opener(_DocumentRedirectHandler())
+            with opener.open(request, timeout=30) as response:
+                return HelloAssoDocument(
+                    content=response.read(),
+                    content_type=response.headers.get_content_type(),
+                    content_disposition=response.headers.get("Content-Disposition", ""),
+                )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 403 and hostname == "docs.helloasso.com":
+                raise HelloAssoAPIError(
+                    "HelloAsso denied access to this uploaded document. "
+                    "The API client must have the OrganizationAdmin role."
+                ) from exc
+            raise HelloAssoAPIError(
+                f"HelloAsso HTTP {exc.code} while downloading document."
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise HelloAssoAPIError(f"HelloAsso network error: {exc.reason}") from exc
 
     def get_form_items(
         self,

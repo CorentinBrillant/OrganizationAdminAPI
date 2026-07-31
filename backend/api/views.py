@@ -1,7 +1,11 @@
+import base64
 import hashlib
 import ipaddress
 import json
 import mimetypes
+import secrets
+import urllib.parse
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
@@ -12,6 +16,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -29,6 +34,8 @@ from .models import (
     Campaign,
     FfckExport,
     FfckExportRow,
+    HelloAssoAuthorizationToken,
+    HelloAssoAuthorizationRequest,
     HelloAssoImport,
     HelloAssoItem,
     Member,
@@ -40,6 +47,7 @@ from .services.badge_import_service import (
     BadgeImportError,
     BadgeImportService,
 )
+from .services.badge_order_export_service import BadgeOrderExportError, BadgeOrderExportService
 from .services.federation_extranet_service import (
     FederationExtranetAuthError,
     FederationExtranetConfigError,
@@ -49,6 +57,7 @@ from .services.federation_extranet_service import (
 from .services.ffck_export_import_service import FfckExportImportError, FfckExportImportService
 from .services.helloasso_service import (
     HelloAssoAPIError,
+    HelloAssoAuthorizationRequiredError,
     HelloAssoConfigError,
     HelloAssoService,
 )
@@ -394,6 +403,218 @@ def _build_member_certificat_fernet():
             None,
             "MEMBER_CERTIFICAT_ENCRYPTION_KEY is invalid. Expected a URL-safe base64 key.",
         )
+
+
+HELLOASSO_AUTHORIZATION_STATE_SALT = "helloasso-authorization-state"
+HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS = 600
+HELLOASSO_AUTHORIZATION_COOKIE = "helloasso_authorization_id"
+
+
+def _helloasso_client_key() -> str:
+    client_id = str(getattr(settings, "HELLOASSO_CLIENT_ID", "")).strip()
+    return hashlib.sha256(client_id.encode("utf-8")).hexdigest()
+
+
+def _helloasso_oauth_redirect_uri() -> str:
+    redirect_uri = str(getattr(settings, "HELLOASSO_OAUTH_REDIRECT_URI", "")).strip()
+    parsed_uri = urllib.parse.urlparse(redirect_uri)
+    if parsed_uri.scheme != "https" or not parsed_uri.netloc:
+        raise HelloAssoConfigError(
+            "HELLOASSO_OAUTH_REDIRECT_URI must be configured with an HTTPS callback URL."
+        )
+    return redirect_uri
+
+
+def _persist_helloasso_authorization_token(
+    token: HelloAssoAuthorizationToken, service: HelloAssoService, organization_slug: str = ""
+) -> None:
+    token.access_token = service.access_token
+    token.refresh_token = service.refresh_token
+    token.access_token_expires_at = service.access_token_expires_at
+    if organization_slug:
+        token.organization_slug = organization_slug
+    token.save()
+
+
+def _authorized_helloasso_service() -> tuple[HelloAssoService, HelloAssoAuthorizationToken]:
+    client_id = str(getattr(settings, "HELLOASSO_CLIENT_ID", "")).strip()
+    client_secret = str(getattr(settings, "HELLOASSO_CLIENT_SECRET", "")).strip()
+    token = HelloAssoAuthorizationToken.objects.filter(client_key=_helloasso_client_key()).first()
+    if token is None or not token.refresh_token:
+        raise HelloAssoAuthorizationRequiredError("HelloAsso authorization is required.")
+    return (
+        HelloAssoService(
+            client_id=client_id,
+            client_secret=client_secret,
+            access_token=token.access_token,
+            refresh_token=token.refresh_token,
+            access_token_expires_at=token.access_token_expires_at,
+        ),
+        token,
+    )
+
+
+def _helloasso_document_response(url: str, fallback_filename: str):
+    try:
+        service, token = _authorized_helloasso_service()
+        document = service.download_document(url)
+        _persist_helloasso_authorization_token(token, service)
+    except HelloAssoConfigError as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+    except HelloAssoAuthorizationRequiredError as exc:
+        return JsonResponse(
+            {"error": str(exc), "code": "helloasso_authorization_required"}, status=401
+        )
+    except HelloAssoAPIError as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    response = HttpResponse(
+        document.content,
+        content_type=document.content_type or "application/octet-stream",
+    )
+    response["Content-Disposition"] = document.content_disposition or (
+        f'attachment; filename="{fallback_filename}"'
+    )
+    return response
+
+
+@require_GET
+def helloasso_authorization_start(request):
+    try:
+        redirect_uri = _helloasso_oauth_redirect_uri()
+        service = HelloAssoService(
+            client_id=str(getattr(settings, "HELLOASSO_CLIENT_ID", "")).strip(),
+            client_secret=str(getattr(settings, "HELLOASSO_CLIENT_SECRET", "")).strip(),
+        )
+    except HelloAssoConfigError as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+    authorization_id = secrets.token_urlsafe(32)
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode("ascii")).digest()
+    ).rstrip(b"=").decode("ascii")
+    HelloAssoAuthorizationRequest.objects.create(
+        authorization_id=authorization_id,
+        code_verifier=code_verifier,
+        expires_at=timezone.now() + timedelta(seconds=HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS),
+    )
+    state = signing.dumps(
+        {"authorization_id": authorization_id}, salt=HELLOASSO_AUTHORIZATION_STATE_SALT
+    )
+    authorize_url = "https://auth.helloasso.com/authorize?" + urllib.parse.urlencode(
+        {
+            "client_id": service.client_id,
+            "redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+    )
+    response = JsonResponse({"authorization_id": authorization_id, "authorize_url": authorize_url})
+    response.set_cookie(
+        HELLOASSO_AUTHORIZATION_COOKIE,
+        authorization_id,
+        max_age=HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS,
+        secure=not settings.DEBUG,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
+
+
+@require_GET
+def helloasso_authorization_status(request, authorization_id):
+    authorization = HelloAssoAuthorizationRequest.objects.filter(
+        authorization_id=authorization_id
+    ).first()
+    if authorization is None or authorization.expires_at <= timezone.now():
+        return JsonResponse({"status": "expired"}, status=404)
+    return JsonResponse(
+        {
+            "status": authorization.status,
+            "error": authorization.error,
+        }
+    )
+
+
+@require_GET
+def helloasso_authorization_callback(request):
+    state = str(request.GET.get("state", ""))
+    try:
+        state_payload = signing.loads(
+            state,
+            salt=HELLOASSO_AUTHORIZATION_STATE_SALT,
+            max_age=HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS,
+        )
+        authorization_id = str(state_payload["authorization_id"])
+    except (KeyError, signing.BadSignature):
+        return HttpResponse("Invalid HelloAsso authorization state.", status=400)
+
+    authorization = HelloAssoAuthorizationRequest.objects.filter(
+        authorization_id=authorization_id
+    ).first()
+    cookie_authorization_id = str(request.COOKIES.get(HELLOASSO_AUTHORIZATION_COOKIE, ""))
+    if (
+        authorization is None
+        or authorization.expires_at <= timezone.now()
+        or not secrets.compare_digest(cookie_authorization_id, authorization_id)
+    ):
+        return HttpResponse("HelloAsso authorization has expired.", status=400)
+
+    error = str(request.GET.get("error_description") or request.GET.get("error") or "")
+    if error:
+        authorization.status = "error"
+        authorization.error = error
+        authorization.save(update_fields=["status", "error"])
+        return _helloasso_authorization_callback_response()
+
+    try:
+        redirect_uri = _helloasso_oauth_redirect_uri()
+        service = HelloAssoService(
+            client_id=str(getattr(settings, "HELLOASSO_CLIENT_ID", "")).strip(),
+            client_secret=str(getattr(settings, "HELLOASSO_CLIENT_SECRET", "")).strip(),
+        )
+        payload = service.exchange_authorization_code(
+            code=str(request.GET.get("code", "")),
+            redirect_uri=redirect_uri,
+            code_verifier=authorization.code_verifier,
+        )
+        if not service.access_token:
+            service.access_token = str(payload["access_token"])
+        if not service.refresh_token:
+            service.refresh_token = str(payload["refresh_token"])
+        if service.access_token_expires_at is None:
+            service.access_token_expires_at = timezone.now() + timedelta(
+                seconds=int(payload.get("expires_in") or 0)
+            )
+        token, _ = HelloAssoAuthorizationToken.objects.get_or_create(
+            client_key=_helloasso_client_key()
+        )
+        _persist_helloasso_authorization_token(
+            token, service, organization_slug=payload["organization_slug"]
+        )
+        authorization.status = "success"
+        authorization.error = ""
+        authorization.save(update_fields=["status", "error"])
+    except (HelloAssoConfigError, HelloAssoAPIError) as exc:
+        authorization.status = "error"
+        authorization.error = str(exc)
+        authorization.save(update_fields=["status", "error"])
+    return _helloasso_authorization_callback_response()
+
+
+def _helloasso_authorization_callback_html() -> str:
+    return (
+        "<!doctype html><title>HelloAsso</title><p>Autorisation HelloAsso terminée. "
+        "Cette fenêtre va se fermer.</p><script>window.close()</script>"
+    )
+
+
+def _helloasso_authorization_callback_response() -> HttpResponse:
+    response = HttpResponse(_helloasso_authorization_callback_html(), status=200)
+    response.delete_cookie(HELLOASSO_AUTHORIZATION_COOKIE)
+    return response
 
 
 @csrf_exempt
@@ -774,7 +995,9 @@ def campaign_member_certificat_download(request, campaign_id, member_id):
         return error_response
 
     if not member.certificat_file:
-        return JsonResponse({"error": "No uploaded certificate for this member."}, status=404)
+        if not member.certificat:
+            return JsonResponse({"error": "No certificate for this member."}, status=404)
+        return _helloasso_document_response(member.certificat, "certificat")
 
     fernet, key_error = _build_member_certificat_fernet()
     if key_error:
@@ -801,6 +1024,34 @@ def campaign_member_certificat_download(request, campaign_id, member_id):
     )
     response["Content-Disposition"] = f'attachment; filename="{download_name}"'
     return response
+
+
+@require_GET
+def campaign_member_photo_download(request, campaign_id, member_id):
+    _, member, error_response = _resolve_campaign_member(campaign_id, member_id)
+    if error_response is not None:
+        return error_response
+
+    if not member.photo:
+        return JsonResponse({"error": "No photo for this member."}, status=404)
+
+    for row in member.ffck_export_rows.exclude(photo=""):
+        if member.photo == f"/api/ffck/rows/{row.id}/photo/download/":
+            return _ffck_photo_download_response(row)
+
+    return _helloasso_document_response(member.photo, "photo")
+
+
+@require_GET
+def campaign_member_autorisation_parentale_download(request, campaign_id, member_id):
+    _, member, error_response = _resolve_campaign_member(campaign_id, member_id)
+    if error_response is not None:
+        return error_response
+
+    if not member.autorisation_parentale:
+        return JsonResponse({"error": "No parental authorization for this member."}, status=404)
+
+    return _helloasso_document_response(member.autorisation_parentale, "autorisation-parentale")
 
 
 @require_http_methods(["DELETE"])
@@ -1428,6 +1679,10 @@ def ffck_latest_rows(request):
 @require_GET
 def ffck_row_photo_download(request, row_id):
     row = get_object_or_404(FfckExportRow, id=row_id)
+    return _ffck_photo_download_response(row)
+
+
+def _ffck_photo_download_response(row: FfckExportRow):
     if not row.photo:
         return JsonResponse({"error": "No FFCK photo for this row."}, status=404)
 
@@ -1504,6 +1759,25 @@ def badge_latest_rows(request):
             },
         }
     )
+
+
+@require_GET
+def badge_export_orders(request):
+    campaign, error_response = _resolve_campaign(request)
+    if error_response is not None:
+        return error_response
+
+    try:
+        content = BadgeOrderExportService(campaign).export()
+    except BadgeOrderExportError as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+    response = HttpResponse(
+        content,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="badges-commande-{campaign.id}.xlsx"'
+    return response
 
 
 @require_POST

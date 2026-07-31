@@ -6,15 +6,18 @@ from .views import (
     auth_login,
     auth_logout,
     auth_session,
+    badge_export_orders,
     badge_import_campaign,
     badge_latest_rows,
     badge_sync_campaign_members,
     campaign_manual_edition,
+    campaign_member_autorisation_parentale_download,
     campaign_member_certificat_delete,
     campaign_member_certificat_download,
     campaign_member_certificat_upload,
     campaign_member_duplicate_merge,
     campaign_member_duplicate_suggestions,
+    campaign_member_photo_download,
     campaign_members,
     campaign_members_bulk_delete,
     campaign_members_export,
@@ -24,6 +27,9 @@ from .views import (
     ffck_latest_rows,
     ffck_row_photo_download,
     ffck_sync_campaign_members,
+    helloasso_authorization_callback,
+    helloasso_authorization_start,
+    helloasso_authorization_status,
     helloasso_import_campaign,
     helloasso_latest_items,
     helloasso_membership_forms,
@@ -68,6 +74,16 @@ urlpatterns = [
         name="campaign-member-certificat-download",
     ),
     path(
+        "campaigns/<int:campaign_id>/members/<int:member_id>/photo/download/",
+        _protected(campaign_member_photo_download),
+        name="campaign-member-photo-download",
+    ),
+    path(
+        "campaigns/<int:campaign_id>/members/<int:member_id>/autorisation-parentale/download/",
+        _protected(campaign_member_autorisation_parentale_download),
+        name="campaign-member-autorisation-parentale-download",
+    ),
+    path(
         "campaigns/<int:campaign_id>/members/<int:member_id>/certificat-file/delete/",
         _protected(campaign_member_certificat_delete),
         name="campaign-member-certificat-delete",
@@ -109,6 +125,21 @@ urlpatterns = [
         name="helloasso-sync-members",
     ),
     path(
+        "helloasso/authorization/start/",
+        _protected(helloasso_authorization_start),
+        name="helloasso-authorization-start",
+    ),
+    path(
+        "helloasso/authorization/<str:authorization_id>/status/",
+        _protected(helloasso_authorization_status),
+        name="helloasso-authorization-status",
+    ),
+    path(
+        "helloasso/authorization/callback/",
+        helloasso_authorization_callback,
+        name="helloasso-authorization-callback",
+    ),
+    path(
         "campaigns/sync-members/", _protected(sync_campaign_members), name="campaigns-sync-members"
     ),
     path("ffck/rows/latest/", _protected(ffck_latest_rows), name="ffck-latest-rows"),
@@ -119,6 +150,7 @@ urlpatterns = [
     ),
     path("ffck/sync-members/", _protected(ffck_sync_campaign_members), name="ffck-sync-members"),
     path("badges/rows/latest/", _protected(badge_latest_rows), name="badges-latest-rows"),
+    path("badges/export-orders/", _protected(badge_export_orders), name="badges-export-orders"),
     path("badges/import/", _protected(badge_import_campaign), name="badges-import-campaign"),
     path(
         "badges/sync-members/", _protected(badge_sync_campaign_members), name="badges-sync-members"

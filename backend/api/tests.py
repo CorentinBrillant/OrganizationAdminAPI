@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -8,13 +9,15 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 from unittest import skipUnless
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from openpyxl import load_workbook
+from PIL import Image as PillowImage
 
 from .auth import create_user_token
 from .models import (
@@ -23,6 +26,7 @@ from .models import (
     Campaign,
     FfckExport,
     FfckExportRow,
+    HelloAssoAuthorizationToken,
     HelloAssoImport,
     HelloAssoItem,
     Member,
@@ -30,10 +34,16 @@ from .models import (
     UserLogin,
 )
 from .services.badge_import_service import BadgeExcelExtraction, BadgeImportService
+from .services.badge_order_export_service import BadgeOrderExportService, _photo_content_for_member
 from .services.federation_extranet_service import ExtranetExcelExtraction, FederationExtranetService
 from .services.ffck_export_import_service import FfckExportImportService
 from .services.file_blob_encryption import FILE_BLOB_ENCRYPTION_PREFIX
-from .services.helloasso_service import HelloAssoService
+from .services.helloasso_service import (
+    HelloAssoAPIError,
+    HelloAssoDocument,
+    HelloAssoService,
+    _DocumentRedirectHandler,
+)
 from .services.member_sync_service import (
     BadgeMemberSyncService,
     FfckMemberSyncService,
@@ -416,6 +426,82 @@ class HelloAssoServiceTests(TestCase):
             ],
         )
 
+    def test_download_document_uses_bearer_token_for_helloasso_url(self):
+        service = HelloAssoService(client_id="client-id", client_secret="client-secret")
+        response = MagicMock()
+        response.read.return_value = b"document"
+        response.headers.get_content_type.return_value = "application/pdf"
+        response.headers.get.return_value = 'attachment; filename="document.pdf"'
+        response.__enter__.return_value = response
+        opener = MagicMock()
+        opener.open.return_value = response
+
+        with (
+            patch.object(service, "get_access_token", return_value="access-token"),
+            patch(
+                "api.services.helloasso_service.urllib.request.build_opener",
+                return_value=opener,
+            ),
+        ):
+            document = service.download_document("https://uploads.helloasso.com/document.pdf")
+
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), "Bearer access-token")
+        self.assertEqual(document.content, b"document")
+        self.assertEqual(document.content_type, "application/pdf")
+
+    def test_document_redirect_removes_token_for_external_storage(self):
+        request = urllib.request.Request(
+            "https://docs.helloasso.com/customFieldsAnswer/123",
+            headers={"Authorization": "Bearer access-token"},
+        )
+
+        redirected_request = _DocumentRedirectHandler().redirect_request(
+            request,
+            None,
+            302,
+            "Found",
+            {},
+            "https://storage.example.test/signed-photo",
+        )
+
+        self.assertIsNotNone(redirected_request)
+        self.assertIsNone(redirected_request.get_header("Authorization"))
+
+    def test_download_document_explains_missing_organization_admin_role(self):
+        service = HelloAssoService(client_id="client-id", client_secret="client-secret")
+        error = urllib.error.HTTPError(
+            "https://docs.helloasso.com/customFieldsAnswer/123",
+            403,
+            "Forbidden",
+            {},
+            None,
+        )
+        opener = MagicMock()
+        opener.open.side_effect = error
+
+        with (
+            patch.object(service, "get_access_token", return_value="access-token"),
+            patch(
+                "api.services.helloasso_service.urllib.request.build_opener",
+                return_value=opener,
+            ),
+        ):
+            with self.assertRaisesRegex(HelloAssoAPIError, "OrganizationAdmin"):
+                service.download_document("https://docs.helloasso.com/customFieldsAnswer/123")
+
+    def test_get_access_token_reuses_cached_unexpired_token(self):
+        service = HelloAssoService(client_id="client-id", client_secret="client-secret")
+        with patch.object(
+            service,
+            "_request_json",
+            return_value={"access_token": "access-token", "expires_in": 3600},
+        ) as request_json:
+            self.assertEqual(service.get_access_token(), "access-token")
+            self.assertEqual(service.get_access_token(), "access-token")
+
+        self.assertEqual(request_json.call_count, 1)
+
     def test_sync_creates_member_when_not_found(self):
         item = HelloAssoItem.objects.create(
             helloasso_id="ha_2",
@@ -783,6 +869,94 @@ class BadgeImportAndSyncServiceTests(TestCase):
         self.member.refresh_from_db()
         self.assertTrue(self.member.badge_ordered)
 
+    def test_badge_order_export_uses_template_and_includes_all_active_members(self):
+        self.member.badge_ordered = True
+        self.member.save(update_fields=["badge_ordered"])
+        second_member = Member.objects.create(
+            campaign=self.campaign,
+            first_name="Alice",
+            name="Martin",
+            email="alice@example.com",
+            ffck_licence="",
+            badge_ordered=True,
+        )
+        third_member = Member.objects.create(
+            campaign=self.campaign,
+            first_name="Ignored",
+            name="Member",
+            email="ignored@example.com",
+            ffck_licence="",
+            badge_ordered=False,
+        )
+        image_content = BytesIO()
+        PillowImage.new("RGB", (1, 1), "red").save(image_content, "PNG")
+
+        with patch(
+            "api.services.badge_order_export_service._photo_content_for_member",
+            return_value=image_content.getvalue(),
+        ):
+            content = BadgeOrderExportService(self.campaign).export()
+
+        workbook = load_workbook(BytesIO(content))
+        sheet = workbook.active
+        self.assertEqual(sheet.title, "2025-2026")
+        self.assertEqual(sheet["A3"].value, 1)
+        self.assertEqual(sheet["B3"].value, "DOE")
+        self.assertEqual(sheet["C3"].value, "John")
+        self.assertIsNone(sheet["D3"].value)
+        self.assertEqual(sheet["G3"].value, 2)
+        self.assertEqual(sheet["H3"].value, "MARTIN")
+        self.assertEqual(sheet["I3"].value, second_member.first_name)
+        self.assertEqual(sheet["A4"].value, 3)
+        self.assertEqual(sheet["B4"].value, "MEMBER")
+        self.assertEqual(sheet["C4"].value, third_member.first_name)
+        self.assertEqual(len(sheet._images), 3)
+
+    @override_settings(HELLOASSO_CLIENT_ID="client", HELLOASSO_CLIENT_SECRET="secret")
+    @patch("api.services.badge_order_export_service.HelloAssoService")
+    def test_badge_order_export_reuses_one_helloasso_service_for_all_remote_photos(
+        self, helloasso_service
+    ):
+        self.member.photo = "https://uploads.helloasso.com/john.jpg"
+        self.member.save(update_fields=["photo"])
+        second_member = Member.objects.create(
+            campaign=self.campaign,
+            first_name="Alice",
+            name="Martin",
+            email="alice@example.com",
+            ffck_licence="",
+            photo="https://uploads.helloasso.com/alice.jpg",
+        )
+        helloasso_service.return_value.download_document.return_value.content = b"invalid image"
+
+        BadgeOrderExportService(self.campaign).export()
+
+        self.assertEqual(helloasso_service.call_count, 1)
+        self.assertEqual(helloasso_service.return_value.download_document.call_count, 2)
+        self.assertEqual(
+            helloasso_service.return_value.download_document.call_args_list[1].args,
+            (second_member.photo,),
+        )
+
+    def test_badge_order_export_uses_ffck_photo_when_helloasso_photo_is_unavailable(self):
+        self.member.photo = "https://docs.helloasso.com/customFieldsAnswer/123"
+        self.member.save(update_fields=["photo"])
+        image_content = BytesIO()
+        PillowImage.new("RGB", (1, 1), "blue").save(image_content, "PNG")
+        helloasso_service = MagicMock()
+        helloasso_service.download_document.side_effect = HelloAssoAPIError("HelloAsso HTTP 403")
+
+        with patch(
+            "api.services.badge_order_export_service._ffck_photo_content",
+            side_effect=[None, image_content.getvalue()],
+        ) as ffck_photo_content:
+            content = _photo_content_for_member(self.member, helloasso_service)
+
+        self.assertEqual(content, image_content.getvalue())
+        self.assertEqual(helloasso_service.download_document.call_count, 1)
+        self.assertEqual(ffck_photo_content.call_count, 2)
+        self.assertTrue(ffck_photo_content.call_args_list[0].kwargs["current_photo_only"])
+
 
 class FileBlobEncryptionTests(TestCase):
     @override_settings(IMPORT_FILE_BLOB_ENCRYPTION_KEY=Fernet.generate_key().decode("utf-8"))
@@ -927,6 +1101,32 @@ class BadgeImportAndSyncViewTests(AuthenticatedApiTestCase):
         self.assertEqual(len(body["rows"]), 1)
         self.assertEqual(body["rows"][0]["licence"], "L-1")
         self.assertEqual(body["rows"][0]["badge_owned"], True)
+
+    def test_badge_order_export_endpoint_returns_xlsx(self):
+        campaign = Campaign.objects.create(
+            title="Campagne export badges",
+            status="active",
+            helloasso_api_key="dummy",
+            helloasso_form_slug="campagne-export-badges",
+        )
+        Member.objects.create(
+            campaign=campaign,
+            first_name="Alice",
+            name="Martin",
+            email="alice@example.com",
+            ffck_licence="",
+            badge_ordered=True,
+        )
+
+        response = self.client.get(f"/api/badges/export-orders/?campaignId={campaign.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("badges-commande", response["Content-Disposition"])
+        self.assertEqual(load_workbook(BytesIO(response.content)).active["B3"].value, "MARTIN")
 
 
 class CampaignSyncMembersViewTests(AuthenticatedApiTestCase):
@@ -1531,6 +1731,126 @@ class CampaignMemberCertificatFileViewTests(AuthenticatedApiTestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertIn("MEMBER_CERTIFICAT_ENCRYPTION_KEY", response.json().get("error", ""))
+
+    @override_settings(HELLOASSO_CLIENT_ID="client", HELLOASSO_CLIENT_SECRET="secret")
+    @patch("api.views.HelloAssoService")
+    def test_downloads_remote_helloasso_documents_with_service_authentication(
+        self, helloasso_service
+    ):
+        HelloAssoAuthorizationToken.objects.create(
+            client_key=hashlib.sha256(b"client").hexdigest(),
+            access_token="access-token",
+            refresh_token="refresh-token",
+        )
+        helloasso_service.return_value.access_token = "access-token"
+        helloasso_service.return_value.refresh_token = "refresh-token"
+        helloasso_service.return_value.access_token_expires_at = None
+        self.member.certificat = "https://uploads.helloasso.com/certificat.pdf"
+        self.member.photo = "https://uploads.helloasso.com/photo.jpg"
+        self.member.autorisation_parentale = "https://uploads.helloasso.com/autorisation.pdf"
+        self.member.save(update_fields=["certificat", "photo", "autorisation_parentale"])
+        helloasso_service.return_value.download_document.side_effect = [
+            HelloAssoDocument(
+                content=b"remote certificate",
+                content_type="application/pdf",
+                content_disposition='attachment; filename="certificat.pdf"',
+            ),
+            HelloAssoDocument(
+                content=b"remote photo",
+                content_type="image/jpeg",
+                content_disposition='attachment; filename="photo.jpg"',
+            ),
+            HelloAssoDocument(
+                content=b"remote authorization",
+                content_type="application/pdf",
+                content_disposition='attachment; filename="autorisation.pdf"',
+            ),
+        ]
+
+        certificate_response = self.client.get(
+            f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/certificat-file/download/"
+        )
+        photo_response = self.client.get(
+            f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/photo/download/"
+        )
+        authorization_response = self.client.get(
+            f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/autorisation-parentale/download/"
+        )
+
+        self.assertEqual(certificate_response.status_code, 200)
+        self.assertEqual(certificate_response.content, b"remote certificate")
+        self.assertEqual(certificate_response["Content-Type"], "application/pdf")
+        self.assertEqual(photo_response.status_code, 200)
+        self.assertEqual(photo_response.content, b"remote photo")
+        self.assertEqual(photo_response["Content-Type"], "image/jpeg")
+        self.assertEqual(authorization_response.status_code, 200)
+        self.assertEqual(authorization_response.content, b"remote authorization")
+        self.assertEqual(authorization_response["Content-Type"], "application/pdf")
+        self.assertEqual(
+            helloasso_service.return_value.download_document.call_args_list[0].args,
+            ("https://uploads.helloasso.com/certificat.pdf",),
+        )
+        self.assertEqual(
+            helloasso_service.return_value.download_document.call_args_list[1].args,
+            ("https://uploads.helloasso.com/photo.jpg",),
+        )
+        self.assertEqual(
+            helloasso_service.return_value.download_document.call_args_list[2].args,
+            ("https://uploads.helloasso.com/autorisation.pdf",),
+        )
+
+    def test_helloasso_document_download_requires_authorization(self):
+        self.member.photo = "https://uploads.helloasso.com/photo.jpg"
+        self.member.save(update_fields=["photo"])
+
+        response = self.client.get(
+            f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/photo/download/"
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "helloasso_authorization_required")
+
+
+class HelloAssoAuthorizationViewTests(AuthenticatedApiTestCase):
+    @override_settings(
+        HELLOASSO_CLIENT_ID="client-id",
+        HELLOASSO_CLIENT_SECRET="client-secret",
+        HELLOASSO_OAUTH_REDIRECT_URI="https://admin.example.test/api/helloasso/authorization/callback/",
+    )
+    def test_authorization_start_and_callback_store_partner_tokens(self):
+        start_response = self.client.get("/api/helloasso/authorization/start/")
+
+        self.assertEqual(start_response.status_code, 200)
+        start_payload = start_response.json()
+        authorize_url = urllib.parse.urlparse(start_payload["authorize_url"])
+        query = urllib.parse.parse_qs(authorize_url.query)
+        self.assertEqual(authorize_url.scheme, "https")
+        self.assertEqual(authorize_url.netloc, "auth.helloasso.com")
+        self.assertEqual(query["client_id"], ["client-id"])
+        self.assertEqual(query["redirect_uri"], ["https://admin.example.test/api/helloasso/authorization/callback/"])
+        self.assertEqual(query["code_challenge_method"], ["S256"])
+
+        with patch.object(
+            HelloAssoService,
+            "exchange_authorization_code",
+            return_value={
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "expires_in": 1800,
+                "organization_slug": "association-test",
+            },
+        ) as exchange:
+            callback_response = self.client.get(
+                "/api/helloasso/authorization/callback/",
+                {"code": "authorization-code", "state": query["state"][0]},
+            )
+
+        self.assertEqual(callback_response.status_code, 200)
+        exchange.assert_called_once()
+        token = HelloAssoAuthorizationToken.objects.get()
+        self.assertEqual(token.access_token, "access-token")
+        self.assertEqual(token.refresh_token, "refresh-token")
+        self.assertEqual(token.organization_slug, "association-test")
 
 
 class CampaignMembersBulkDeleteViewTests(AuthenticatedApiTestCase):

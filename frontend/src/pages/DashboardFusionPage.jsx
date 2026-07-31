@@ -4,6 +4,10 @@ import { useDispatch, useSelector } from "react-redux";
 import { withApiAuthHeaders } from "../auth/token";
 import { exportCampaignMembers } from "../api/campaigns";
 import {
+	fetchHelloAssoAuthorizationStatus,
+	startHelloAssoAuthorization,
+} from "../api/helloasso";
+import {
 	loadCampaignMembers,
 	saveCampaignMembersManualEdition,
 	upsertCampaignMemberPatch,
@@ -626,6 +630,71 @@ export default function DashboardFusionPage() {
 		}
 	};
 
+	const downloadMemberDocument = async (memberId, documentType) => {
+		if (!Number.isFinite(Number(memberId)) || !Number.isFinite(Number(activeCampaignId))) return;
+		const action = `download-${documentType}-${memberId}`;
+		setBusyAction(action);
+		try {
+			let authorized = false;
+			while (true) {
+				const response = await fetch(
+					`/api/campaigns/${activeCampaignId}/members/${memberId}/${documentType}/download/`,
+					{ headers: withApiAuthHeaders() },
+				);
+				if (!response.ok) {
+					const payload = await response.json().catch(() => ({}));
+					if (payload?.code === "helloasso_authorization_required" && !authorized) {
+						await authorizeHelloAssoDocumentDownload();
+						authorized = true;
+						continue;
+					}
+					throw new Error(payload?.error || `HTTP ${response.status}`);
+				}
+				const contentDisposition = response.headers.get("Content-Disposition");
+				const filename =
+					contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1] || documentType;
+				const url = URL.createObjectURL(await response.blob());
+				const link = document.createElement("a");
+				link.href = url;
+				link.download = filename;
+				link.click();
+				URL.revokeObjectURL(url);
+				break;
+			}
+		} catch (error) {
+			setMessage(error?.message || "Téléchargement impossible.");
+		} finally {
+			setBusyAction("");
+		}
+	};
+
+	const authorizeHelloAssoDocumentDownload = async () => {
+		const { authorization_id: authorizationId, authorize_url: authorizeUrl } =
+			await startHelloAssoAuthorization();
+		const popup = window.open(authorizeUrl, "helloasso-authorization", "width=500,height=650");
+		if (!popup) {
+			throw new Error("La fenêtre d’autorisation HelloAsso a été bloquée par le navigateur.");
+		}
+
+		const expiresAt = Date.now() + 10 * 60 * 1000;
+		while (Date.now() < expiresAt) {
+			await new Promise((resolve) => window.setTimeout(resolve, 750));
+			try {
+				const status = await fetchHelloAssoAuthorizationStatus(authorizationId);
+				if (status.status === "success") return;
+				if (status.status === "error") {
+					throw new Error(status.error || "L’autorisation HelloAsso a échoué.");
+				}
+			} catch (error) {
+				if (error?.message?.includes("HTTP 404")) {
+					throw new Error("L’autorisation HelloAsso a expiré.");
+				}
+				throw error;
+			}
+		}
+		throw new Error("L’autorisation HelloAsso a expiré.");
+	};
+
 	const moveColumn = (index, direction) => {
 		setColumns((current) => {
 			const target = index + direction;
@@ -651,22 +720,18 @@ export default function DashboardFusionPage() {
 	};
 
 	const renderCertificateControl = (row) => {
-		if (row.certificat) {
+		if (row.certificat || row.certificat_file_uploaded) {
 			return (
-				<a href={row.certificat} target="_blank" rel="noreferrer">
-					Ouvrir
-				</a>
-			);
-		}
-		if (row.certificat_file_uploaded) {
-			return (
-				<a
-					href={`/api/campaigns/${activeCampaignId}/members/${row.member_id}/certificat-file/download/`}
-					target="_blank"
-					rel="noreferrer"
+				<button
+					type="button"
+					className="btn-subtle"
+					disabled={busyAction === `download-certificat-file-${row.member_id}`}
+					onClick={() => downloadMemberDocument(row.member_id, "certificat-file")}
 				>
-					Télécharger {row.certificat_file_name || "le fichier"}
-				</a>
+					{busyAction === `download-certificat-file-${row.member_id}`
+						? "Téléchargement..."
+						: `Télécharger ${row.certificat_file_name || "le certificat"}`}
+				</button>
 			);
 		}
 		return (
@@ -705,14 +770,30 @@ export default function DashboardFusionPage() {
 			);
 		}
 		if (column.key === "certificat") return renderCertificateControl(row);
-		if (
-			["autorisation_parentale", "photo"].includes(column.key) &&
-			(/^(?:https?:)?\/\//i.test(value) || value.startsWith("/api/"))
-		) {
+		if (column.key === "photo" && value) {
 			return (
-				<a href={value} target="_blank" rel="noreferrer">
-					Ouvrir
-				</a>
+				<button
+					type="button"
+					className="btn-subtle"
+					disabled={busyAction === `download-photo-${row.member_id}`}
+					onClick={() => downloadMemberDocument(row.member_id, "photo")}
+				>
+					{busyAction === `download-photo-${row.member_id}` ? "Téléchargement..." : "Télécharger"}
+				</button>
+			);
+		}
+		if (column.key === "autorisation_parentale" && value) {
+			return (
+				<button
+					type="button"
+					className="btn-subtle"
+					disabled={busyAction === `download-autorisation-parentale-${row.member_id}`}
+					onClick={() => downloadMemberDocument(row.member_id, "autorisation-parentale")}
+				>
+					{busyAction === `download-autorisation-parentale-${row.member_id}`
+						? "Téléchargement..."
+						: "Télécharger"}
+				</button>
 			);
 		}
 		if (lockedColumns.has(column.key)) return value;
@@ -846,15 +927,33 @@ export default function DashboardFusionPage() {
 					{renderCertificateControl(row)}
 				</td>
 			);
-		if (
-			["autorisation_parentale", "photo"].includes(column.key) &&
-			(/^(?:https?:)?\/\//i.test(value) || value.startsWith("/api/"))
-		) {
+		if (column.key === "photo" && value) {
 			return (
 				<td key={column.key} className={columnClassName}>
-					<a href={value} target="_blank" rel="noreferrer">
-						Ouvrir
-					</a>
+					<button
+						type="button"
+						className="btn-subtle"
+						disabled={busyAction === `download-photo-${row.member_id}`}
+						onClick={() => downloadMemberDocument(row.member_id, "photo")}
+					>
+						{busyAction === `download-photo-${row.member_id}` ? "Téléchargement..." : "Télécharger"}
+					</button>
+				</td>
+			);
+		}
+		if (column.key === "autorisation_parentale" && value) {
+			return (
+				<td key={column.key} className={columnClassName}>
+					<button
+						type="button"
+						className="btn-subtle"
+						disabled={busyAction === `download-autorisation-parentale-${row.member_id}`}
+						onClick={() => downloadMemberDocument(row.member_id, "autorisation-parentale")}
+					>
+						{busyAction === `download-autorisation-parentale-${row.member_id}`
+							? "Téléchargement..."
+							: "Télécharger"}
+					</button>
 				</td>
 			);
 		}

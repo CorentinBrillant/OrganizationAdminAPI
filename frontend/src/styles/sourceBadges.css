@@ -28,9 +28,9 @@
 .badges-source-meta { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
 .badges-source-meta.error { color: #ef8a82; }
 .badges-source-toolbar { padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; }
-.badges-source-import, .badges-source-toolbar input { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; background: var(--surface); color: var(--fg); }
-.badges-source-import { background: color-mix(in oklch, var(--accent) 16%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; cursor: pointer; }
-.badges-source-import:disabled { opacity: 0.35; cursor: not-allowed; }
+.badges-source-import, .badges-source-export, .badges-source-toolbar input { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; background: var(--surface); color: var(--fg); }
+.badges-source-import, .badges-source-export { background: color-mix(in oklch, var(--accent) 16%, var(--surface)); color: color-mix(in oklch, var(--accent) 62%, black); font-weight: 650; cursor: pointer; }
+.badges-source-import:disabled, .badges-source-export:disabled { opacity: 0.35; cursor: not-allowed; }
 .badges-source-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .badges-source-kpis article { padding: 12px; }
 .badges-source-kpis span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
