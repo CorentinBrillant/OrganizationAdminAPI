@@ -756,7 +756,7 @@ class FfckSyncMembersViewTests(AuthenticatedApiTestCase):
             campaign=campaign,
             first_name="Cyril",
             name="VAN",
-            email="cyril@example.com",
+            email="—",
             ffck_licence="",
         )
         ffck_export = FfckExport.objects.create(
@@ -783,6 +783,7 @@ class FfckSyncMembersViewTests(AuthenticatedApiTestCase):
             raw_row={
                 "nom": "VAN",
                 "prenom": "Cyril",
+                "mail": "  cyril.ffck@example.com  ",
                 "type certificat": "Questionnaire de sante",
                 "date de fin certificat medical": "2027-02-01",
                 "type licence": "Competition",
@@ -802,6 +803,7 @@ class FfckSyncMembersViewTests(AuthenticatedApiTestCase):
         member.refresh_from_db()
         campaign.refresh_from_db()
         self.assertEqual(ffck_row.member_id, member.id)
+        self.assertEqual(member.email, "cyril.ffck@example.com")
         self.assertEqual(member.ffck_licence, "528768")
         self.assertEqual(member.photo, f"/api/ffck/rows/{ffck_row.id}/photo/download/")
         self.assertIsNotNone(campaign.last_merge)
@@ -1827,7 +1829,10 @@ class HelloAssoAuthorizationViewTests(AuthenticatedApiTestCase):
         self.assertEqual(authorize_url.scheme, "https")
         self.assertEqual(authorize_url.netloc, "auth.helloasso.com")
         self.assertEqual(query["client_id"], ["client-id"])
-        self.assertEqual(query["redirect_uri"], ["https://admin.example.test/api/helloasso/authorization/callback/"])
+        self.assertEqual(
+            query["redirect_uri"],
+            ["https://admin.example.test/api/helloasso/authorization/callback/"],
+        )
         self.assertEqual(query["code_challenge_method"], ["S256"])
 
         with patch.object(
@@ -2549,6 +2554,16 @@ class FfckMemberSyncServiceTests(TestCase):
         self.assertEqual(summary["updated_members"], 1)
         self.assertEqual(summary["skipped_rows"], 0)
 
+        member.email = "manuel@example.com"
+        member.save(update_fields=["email"])
+        ffck_row.raw_row["mail"] = "nouveau.ffck@example.com"
+        ffck_row.save(update_fields=["raw_row"])
+
+        FfckMemberSyncService(campaign=campaign).sync_latest_export()
+
+        member.refresh_from_db()
+        self.assertEqual(member.email, "manuel@example.com")
+
     def test_sync_latest_export_creates_member_when_missing_and_skips_rows_without_identity(self):
         campaign = Campaign.objects.create(
             title="Campagne FFCK sync skip",
@@ -2587,6 +2602,7 @@ class FfckMemberSyncServiceTests(TestCase):
             raw_row={
                 "nom": "Dupont",
                 "prenom": "Alice",
+                "mail": "alice.ffck@example.com",
                 "type certificat": "Certificat medical",
                 "date de fin certificat medical": "2026-12-31",
                 "type licence": "Loisir",
@@ -2602,6 +2618,7 @@ class FfckMemberSyncServiceTests(TestCase):
         created_member = Member.objects.get(id=row_without_member.member_id)
         self.assertEqual(created_member.first_name, "Alice")
         self.assertEqual(created_member.name, "Dupont")
+        self.assertEqual(created_member.email, "alice.ffck@example.com")
         self.assertEqual(created_member.ffck_licence, "000002")
         self.assertEqual(created_member.ffck_certificat, "Certificat medical")
         self.assertEqual(created_member.ffck_certificat_expiration, "2026-12-31")

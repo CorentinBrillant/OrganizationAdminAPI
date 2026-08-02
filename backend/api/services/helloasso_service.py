@@ -191,11 +191,7 @@ class HelloAssoService:
     def download_document(self, url: str) -> HelloAssoDocument:
         parsed_url = urllib.parse.urlparse(str(url or "").strip())
         hostname = (parsed_url.hostname or "").lower()
-        if (
-            parsed_url.scheme != "https"
-            or not hostname
-            or not _is_helloasso_host(hostname)
-        ):
+        if parsed_url.scheme != "https" or not hostname or not _is_helloasso_host(hostname):
             raise HelloAssoAPIError("Document URL must use HTTPS on a HelloAsso domain.")
 
         token = self.get_access_token()

@@ -330,6 +330,9 @@ class FfckMemberSyncService:
                 skipped_rows += 1
                 continue
 
+            raw_row = _coerce_dict(row.raw_row)
+            ffck_email = _pick_first_string(raw_row.get("mail")).lower()
+
             linked_member = row.member
             if (
                 linked_member is not None
@@ -346,7 +349,7 @@ class FfckMemberSyncService:
                         campaign=self.campaign,
                         first_name=first_name,
                         name=last_name,
-                        email="",
+                        email=ffck_email,
                         ffck_licence="",
                     )
                     members_by_identity[key] = member
@@ -358,7 +361,6 @@ class FfckMemberSyncService:
             linked_rows += 1
 
             licence = _pick_first_string(row.licence)
-            raw_row = _coerce_dict(row.raw_row)
             ffck_certificat = _pick_first_string(raw_row.get("type certificat"))
             ffck_certificat_expiration = _pick_first_string(
                 raw_row.get("date de fin certificat medical"),
@@ -370,6 +372,9 @@ class FfckMemberSyncService:
             if licence and member.ffck_licence != licence:
                 member.ffck_licence = licence
                 update_fields.append("ffck_licence")
+            if ffck_email and str(member.email or "").strip() in {"", "—"}:
+                member.email = ffck_email
+                update_fields.append("email")
             if member.ffck_certificat != ffck_certificat:
                 member.ffck_certificat = ffck_certificat
                 update_fields.append("ffck_certificat")

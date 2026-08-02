@@ -491,9 +491,11 @@ def helloasso_authorization_start(request):
 
     authorization_id = secrets.token_urlsafe(32)
     code_verifier = secrets.token_urlsafe(64)
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode("ascii")).digest()
-    ).rstrip(b"=").decode("ascii")
+    code_challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
+        .rstrip(b"=")
+        .decode("ascii")
+    )
     HelloAssoAuthorizationRequest.objects.create(
         authorization_id=authorization_id,
         code_verifier=code_verifier,

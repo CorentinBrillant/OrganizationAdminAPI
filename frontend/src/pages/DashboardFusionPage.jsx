@@ -8,6 +8,7 @@ import {
 	startHelloAssoAuthorization,
 } from "../api/helloasso";
 import {
+	loadCampaignFfckRows,
 	loadCampaignMembers,
 	saveCampaignMembersManualEdition,
 	upsertCampaignMemberPatch,
@@ -21,7 +22,7 @@ const sourceColumns = [
 	{ key: "prenom", label: "Prénom" },
 	{ key: "licence", label: "Licence FFCK" },
 	{ key: "email", label: "Email" },
-	{ key: "certificat", label: "Certificat" },
+	{ key: "certificat", label: "Certificat/QS" },
 	{ key: "autorisation_parentale", label: "Autorisation parentale" },
 	{ key: "photo", label: "Photo" },
 	{ key: "option_ia", label: "Option IA" },
@@ -34,6 +35,10 @@ const statusOptions = ["Conforme", "À vérifier", "Bloquant"];
 
 const reasonOptions = [
 	{ value: "Certificat manquant", label: "Certificat manquant" },
+	{
+		value: "Autorisation parentale manquante",
+		label: "Autorisation parentale",
+	},
 	{ value: "Expiration certificat", label: "Expiration certificat" },
 	{
 		value: "Incohérence entre formulaire HelloAsso et type de licence FFCK",
@@ -82,7 +87,66 @@ function hasMissingCertificate(row) {
 	return !row.certificat_file_uploaded && !String(row.certificat || "").trim();
 }
 
+function hasLicenceNumber(row) {
+	return Boolean(String(row.ffck_licence || "").trim());
+}
+
+function parseFfckBirthDate(value) {
+	const text = String(value || "").trim();
+	if (!text) return null;
+
+	const dateParts = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+	const frenchDateParts = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+	const parts = dateParts || frenchDateParts;
+	if (parts) {
+		const [year, month, day] = dateParts
+			? [parts[1], parts[2], parts[3]]
+			: [parts[3], parts[2], parts[1]];
+		const date = new Date(Number(year), Number(month) - 1, Number(day));
+		if (
+			date.getFullYear() === Number(year) &&
+			date.getMonth() === Number(month) - 1 &&
+			date.getDate() === Number(day)
+		) {
+			return date;
+		}
+	}
+
+	if (/^\d+(?:\.0+)?$/.test(text)) {
+		const serial = Number(text);
+		if (serial > 0 && serial < 100000) {
+			const excelDate = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+			return new Date(
+				excelDate.getUTCFullYear(),
+				excelDate.getUTCMonth(),
+				excelDate.getUTCDate(),
+			);
+		}
+	}
+
+	return null;
+}
+
+function isAdult(birthDate) {
+	if (!birthDate) return false;
+	const today = new Date();
+	const eighteenthBirthday = new Date(
+		birthDate.getFullYear() + 18,
+		birthDate.getMonth(),
+		birthDate.getDate(),
+	);
+	return today >= eighteenthBirthday;
+}
+
+function hasMissingParentalAuthorization(row) {
+	return (
+		row.is_minor && !String(row.autorisation_parentale || "").trim()
+	);
+}
+
 function getRowStatus(row) {
+	if (hasMissingParentalAuthorization(row)) return "Bloquant";
+	if (hasMissingCertificate(row) && hasLicenceNumber(row)) return "À vérifier";
 	if (hasMissingCertificate(row)) return "Bloquant";
 	return row.manual_review === "vérifié" ? "Conforme" : "À vérifier";
 }
@@ -90,6 +154,9 @@ function getRowStatus(row) {
 function getRowReason(row) {
 	const reasons = [];
 	if (hasMissingCertificate(row)) reasons.push("Certificat manquant");
+	if (hasMissingParentalAuthorization(row)) {
+		reasons.push("Autorisation parentale manquante");
+	}
 
 	const expiration = new Date(row.ffck_certificat_expiration);
 	if (
@@ -118,18 +185,26 @@ function getRowReason(row) {
 	return reasons.length ? reasons.join(" | ") : "Aucune anomalie";
 }
 
-function memberToRow(member) {
+function memberToRow(member, ffckRow) {
 	const certificateFile = member?.certificat_file || {};
+	const birthDate = parseFfckBirthDate(ffckRow?.raw_row?.ddn);
+	const isAdultMember = isAdult(birthDate);
 	const row = {
 		member_id: Number(member?.id),
 		nom: member?.name || "—",
 		prenom: member?.first_name || "—",
 		licence: member?.ffck_licence || "—",
+		ffck_licence: member?.ffck_licence || "",
 		email: member?.email || "—",
 		certificat: member?.certificat || "",
 		certificat_file_uploaded: Boolean(certificateFile.uploaded),
 		certificat_file_name: certificateFile.filename || "",
-		autorisation_parentale: member?.autorisation_parentale || "",
+		autorisation_parentale: isAdultMember
+			? "NA"
+			: member?.autorisation_parentale || "",
+		autorisation_parentale_document: member?.autorisation_parentale || "",
+		is_minor: Boolean(birthDate) && !isAdultMember,
+		is_major: isAdultMember,
 		photo: member?.photo || "",
 		option_ia: member?.option_ia ? "Oui" : "Non",
 		badge_owned: member?.badge_owned ? "Oui" : "Non",
@@ -162,9 +237,13 @@ function rowToPatch(row) {
 		first_name: String(row.prenom || "").trim(),
 		name: String(row.nom || "").trim(),
 		ffck_licence: String(row.licence || "").trim(),
-		email: String(row.email || "").trim(),
+		email: optionalLink(row.email),
 		certificat: optionalLink(row.certificat),
-		autorisation_parentale: optionalLink(row.autorisation_parentale),
+		autorisation_parentale: optionalLink(
+			row.is_major
+				? row.autorisation_parentale_document
+				: row.autorisation_parentale,
+		),
 		photo: optionalLink(row.photo),
 		option_ia: booleanValue(row.option_ia),
 		manual_review: booleanValue(row.manual_review),
@@ -261,6 +340,9 @@ export default function DashboardFusionPage() {
 	const members = useSelector(
 		(state) => state.campaigns.membersByCampaignId[activeCampaignId] || [],
 	);
+	const ffckRows = useSelector(
+		(state) => state.campaigns.ffckRowsByCampaignId[activeCampaignId] || [],
+	);
 	const filters = useSelector(
 		(state) => state.campaigns.uiFiltersByPage.dashboard,
 	);
@@ -282,12 +364,26 @@ export default function DashboardFusionPage() {
 	const activeCatalogItem = catalog.find(
 		(campaign) => Number(campaign.id) === Number(activeCampaignId),
 	);
+	const ffckRowsByMemberId = useMemo(
+		() =>
+			new Map(
+				ffckRows
+					.filter(
+						(row) =>
+							row.member_id != null && Number.isFinite(Number(row.member_id)),
+					)
+					.map((row) => [Number(row.member_id), row]),
+			),
+		[ffckRows],
+	);
 	const rows = useMemo(
 		() =>
 			members
-				.map(memberToRow)
+				.map((member) =>
+					memberToRow(member, ffckRowsByMemberId.get(Number(member.id))),
+				)
 				.map((row) => ({ ...row, ...(edits[row.member_id] || {}) })),
-		[members, edits],
+		[members, edits, ffckRowsByMemberId],
 	);
 
 	const visibleRows = useMemo(() => {
@@ -361,6 +457,7 @@ export default function DashboardFusionPage() {
 	useEffect(() => {
 		if (Number.isFinite(Number(activeCampaignId))) {
 			dispatch(loadCampaignMembers({ campaignId: activeCampaignId }));
+			dispatch(loadCampaignFfckRows({ campaignId: activeCampaignId }));
 		}
 		setEdits({});
 		setSelectedIds(new Set());
@@ -782,6 +879,9 @@ export default function DashboardFusionPage() {
 				</button>
 			);
 		}
+		if (column.key === "autorisation_parentale" && row.is_major) {
+			return "NA";
+		}
 		if (column.key === "autorisation_parentale" && value) {
 			return (
 				<button
@@ -927,6 +1027,13 @@ export default function DashboardFusionPage() {
 					{renderCertificateControl(row)}
 				</td>
 			);
+		if (column.key === "autorisation_parentale" && row.is_major) {
+			return (
+				<td key={column.key} className={columnClassName}>
+					NA
+				</td>
+			);
+		}
 		if (column.key === "photo" && value) {
 			return (
 				<td key={column.key} className={columnClassName}>
