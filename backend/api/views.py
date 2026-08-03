@@ -16,7 +16,6 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
-from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -405,7 +404,6 @@ def _build_member_certificat_fernet():
         )
 
 
-HELLOASSO_AUTHORIZATION_STATE_SALT = "helloasso-authorization-state"
 HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS = 600
 HELLOASSO_AUTHORIZATION_COOKIE = "helloasso_authorization_id"
 
@@ -436,29 +434,32 @@ def _persist_helloasso_authorization_token(
     token.save()
 
 
-def _authorized_helloasso_service() -> tuple[HelloAssoService, HelloAssoAuthorizationToken]:
+def _authorized_helloasso_service() -> tuple[HelloAssoService, HelloAssoAuthorizationToken | None]:
     client_id = str(getattr(settings, "HELLOASSO_CLIENT_ID", "")).strip()
     client_secret = str(getattr(settings, "HELLOASSO_CLIENT_SECRET", "")).strip()
     token = HelloAssoAuthorizationToken.objects.filter(client_key=_helloasso_client_key()).first()
-    if token is None or not token.refresh_token:
-        raise HelloAssoAuthorizationRequiredError("HelloAsso authorization is required.")
-    return (
-        HelloAssoService(
-            client_id=client_id,
-            client_secret=client_secret,
-            access_token=token.access_token,
-            refresh_token=token.refresh_token,
-            access_token_expires_at=token.access_token_expires_at,
-        ),
-        token,
-    )
+    if token is not None and token.refresh_token:
+        return (
+            HelloAssoService(
+                client_id=client_id,
+                client_secret=client_secret,
+                access_token=token.access_token,
+                refresh_token=token.refresh_token,
+                access_token_expires_at=token.access_token_expires_at,
+            ),
+            token,
+        )
+
+    # Association-owned API clients receive OrganizationAdmin through client_credentials.
+    return HelloAssoService(client_id=client_id, client_secret=client_secret), None
 
 
 def _helloasso_document_response(url: str, fallback_filename: str):
     try:
         service, token = _authorized_helloasso_service()
         document = service.download_document(url)
-        _persist_helloasso_authorization_token(token, service)
+        if token is not None:
+            _persist_helloasso_authorization_token(token, service)
     except HelloAssoConfigError as exc:
         return JsonResponse({"error": str(exc)}, status=500)
     except HelloAssoAuthorizationRequiredError as exc:
@@ -501,9 +502,6 @@ def helloasso_authorization_start(request):
         code_verifier=code_verifier,
         expires_at=timezone.now() + timedelta(seconds=HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS),
     )
-    state = signing.dumps(
-        {"authorization_id": authorization_id}, salt=HELLOASSO_AUTHORIZATION_STATE_SALT
-    )
     authorize_url = "https://auth.helloasso.com/authorize?" + urllib.parse.urlencode(
         {
             "client_id": service.client_id,
@@ -511,7 +509,8 @@ def helloasso_authorization_start(request):
             "response_type": "code",
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
-            "state": state,
+            # The opaque, database-backed identifier is already unguessable and is bound to a cookie.
+            "state": authorization_id,
         }
     )
     response = JsonResponse({"authorization_id": authorization_id, "authorize_url": authorize_url})
@@ -543,15 +542,8 @@ def helloasso_authorization_status(request, authorization_id):
 
 @require_GET
 def helloasso_authorization_callback(request):
-    state = str(request.GET.get("state", ""))
-    try:
-        state_payload = signing.loads(
-            state,
-            salt=HELLOASSO_AUTHORIZATION_STATE_SALT,
-            max_age=HELLOASSO_AUTHORIZATION_TIMEOUT_SECONDS,
-        )
-        authorization_id = str(state_payload["authorization_id"])
-    except (KeyError, signing.BadSignature):
+    authorization_id = str(request.GET.get("state", ""))
+    if not authorization_id:
         return HttpResponse("Invalid HelloAsso authorization state.", status=400)
 
     authorization = HelloAssoAuthorizationRequest.objects.filter(

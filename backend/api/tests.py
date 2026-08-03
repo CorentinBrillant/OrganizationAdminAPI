@@ -1801,16 +1801,24 @@ class CampaignMemberCertificatFileViewTests(AuthenticatedApiTestCase):
             ("https://uploads.helloasso.com/autorisation.pdf",),
         )
 
-    def test_helloasso_document_download_requires_authorization(self):
+    @override_settings(HELLOASSO_CLIENT_ID="client", HELLOASSO_CLIENT_SECRET="secret")
+    @patch("api.views.HelloAssoService")
+    def test_document_download_uses_client_credentials_without_partner_token(self, helloasso_service):
         self.member.photo = "https://uploads.helloasso.com/photo.jpg"
         self.member.save(update_fields=["photo"])
+        helloasso_service.return_value.download_document.return_value = HelloAssoDocument(
+            content=b"remote photo",
+            content_type="image/jpeg",
+            content_disposition='attachment; filename="photo.jpg"',
+        )
 
         response = self.client.get(
             f"/api/campaigns/{self.campaign.id}/members/{self.member.id}/photo/download/"
         )
 
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["code"], "helloasso_authorization_required")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"remote photo")
+        helloasso_service.assert_called_once_with(client_id="client", client_secret="secret")
 
 
 class HelloAssoAuthorizationViewTests(AuthenticatedApiTestCase):
@@ -1835,6 +1843,7 @@ class HelloAssoAuthorizationViewTests(AuthenticatedApiTestCase):
         )
         self.assertEqual(query["response_type"], ["code"])
         self.assertEqual(query["code_challenge_method"], ["S256"])
+        self.assertEqual(query["state"], [start_payload["authorization_id"]])
 
         with patch.object(
             HelloAssoService,
