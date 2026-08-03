@@ -5,6 +5,7 @@ import {
 	loadCampaignFfckRows,
 	loadCampaignMembers,
 	loadCampaigns,
+	setActiveCampaign,
 } from "../store/campaignsSlice";
 
 const CAMPAIGN_STORE_KEY = "ffck:campaign";
@@ -65,6 +66,10 @@ export default function Sidebar({
 	);
 
 	useEffect(() => {
+		const storedCampaign = localStorage.getItem(CAMPAIGN_STORE_KEY);
+		if (storedCampaign) {
+			dispatch(setActiveCampaign(storedCampaign));
+		}
 		dispatch(loadCampaigns());
 	}, [dispatch]);
 
