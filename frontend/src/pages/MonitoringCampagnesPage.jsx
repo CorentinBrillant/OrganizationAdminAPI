@@ -4,16 +4,26 @@ import { useSelector } from 'react-redux'
 import { fetchCampaignFfckLatestRows, fetchCampaignMembers } from '../api/campaigns'
 import { fetchHelloAssoLatestItems } from '../api/helloasso'
 import { formatApiDateTime } from '../mappers/ffckMappers'
+import { memberCompliance } from '../utils/memberCompliance'
 import '../styles/monitoringCampagnes.css'
 
 function campaignStatus(snapshot) {
   const members = snapshot.members || []
-  const missingCertificates = members.filter((member) => !member.certificat_file?.uploaded && !member.certificat).length
-  const review = members.filter((member) => !member.manual_review).length
-  const anomalies = missingCertificates + review
-  if (missingCertificates > 0) return { label: 'Bloquée', className: 'danger', completed: members.length - anomalies, anomalies }
-  if (review > 0) return { label: 'À contrôler', className: 'warn', completed: members.length - review, anomalies }
-  return { label: 'Stable', className: 'ok', completed: members.length, anomalies: 0 }
+  const ffckRowsByMemberId = new Map(
+    (snapshot.ffck?.rows || [])
+      .filter((row) => Number.isFinite(Number(row?.member_id)))
+      .map((row) => [Number(row.member_id), row]),
+  )
+  const compliance = members.map((member) =>
+    memberCompliance(member, ffckRowsByMemberId.get(Number(member.id))),
+  )
+  const anomalies = compliance.reduce((total, result) => total + result.reasons.length, 0)
+  const completed = compliance.filter((result) => result.status === 'Conforme').length
+  if (compliance.some((result) => result.status === 'Bloquant')) {
+    return { label: 'Bloquée', className: 'danger', completed, anomalies }
+  }
+  if (anomalies > 0) return { label: 'À contrôler', className: 'warn', completed, anomalies }
+  return { label: 'Stable', className: 'ok', completed, anomalies }
 }
 
 function StatusPill({ status }) {

@@ -45,7 +45,6 @@ const reasonOptions = [
 		label: "Incohérence licence",
 	},
 	{ value: "Vérification manuelle requise", label: "Vérification manuelle" },
-	{ value: "Aucune anomalie", label: "Aucune anomalie" },
 ];
 
 const statusChartMeta = {
