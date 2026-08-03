@@ -1833,6 +1833,7 @@ class HelloAssoAuthorizationViewTests(AuthenticatedApiTestCase):
             query["redirect_uri"],
             ["https://admin.example.test/api/helloasso/authorization/callback/"],
         )
+        self.assertEqual(query["response_type"], ["code"])
         self.assertEqual(query["code_challenge_method"], ["S256"])
 
         with patch.object(

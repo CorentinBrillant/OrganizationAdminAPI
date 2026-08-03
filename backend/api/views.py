@@ -508,6 +508,7 @@ def helloasso_authorization_start(request):
         {
             "client_id": service.client_id,
             "redirect_uri": redirect_uri,
+            "response_type": "code",
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
             "state": state,
