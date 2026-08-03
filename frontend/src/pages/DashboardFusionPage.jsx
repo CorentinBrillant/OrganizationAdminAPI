@@ -140,7 +140,9 @@ function isAdult(birthDate) {
 
 function hasMissingParentalAuthorization(row) {
 	return (
-		row.is_minor && !String(row.autorisation_parentale || "").trim()
+		row.is_minor &&
+		!String(row.autorisation_parentale || "").trim() &&
+		!row.autorisation_parentale_file_uploaded
 	);
 }
 
@@ -187,6 +189,7 @@ function getRowReason(row) {
 
 function memberToRow(member, ffckRow) {
 	const certificateFile = member?.certificat_file || {};
+	const parentalAuthorizationFile = member?.autorisation_parentale_file || {};
 	const birthDate = parseFfckBirthDate(ffckRow?.raw_row?.ddn);
 	const isAdultMember = isAdult(birthDate);
 	const row = {
@@ -199,6 +202,8 @@ function memberToRow(member, ffckRow) {
 		certificat: member?.certificat || "",
 		certificat_file_uploaded: Boolean(certificateFile.uploaded),
 		certificat_file_name: certificateFile.filename || "",
+		autorisation_parentale_file_uploaded: Boolean(parentalAuthorizationFile.uploaded),
+		autorisation_parentale_file_name: parentalAuthorizationFile.filename || "",
 		autorisation_parentale: isAdultMember
 			? "NA"
 			: member?.autorisation_parentale || "",
@@ -328,6 +333,7 @@ function PieChartCard({
 export default function DashboardFusionPage() {
 	const dispatch = useDispatch();
 	const fileInputRef = useRef(null);
+	const parentalAuthorizationFileInputRef = useRef(null);
 	const tableScrollTopRef = useRef(null);
 	const tableWrapRef = useRef(null);
 	const tableRef = useRef(null);
@@ -357,6 +363,8 @@ export default function DashboardFusionPage() {
 	const [selectedMemberId, setSelectedMemberId] = useState(null);
 	const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 	const [pendingCertificateMemberId, setPendingCertificateMemberId] =
+		useState(null);
+	const [pendingParentalAuthorizationMemberId, setPendingParentalAuthorizationMemberId] =
 		useState(null);
 	const [busyAction, setBusyAction] = useState("");
 	const [message, setMessage] = useState("");
@@ -581,6 +589,9 @@ export default function DashboardFusionPage() {
 			await dispatch(
 				loadCampaignMembers({ campaignId: activeCampaignId, force: true }),
 			).unwrap();
+			await dispatch(
+				loadCampaignFfckRows({ campaignId: activeCampaignId, force: true }),
+			).unwrap();
 			setMessage("Fusion terminée.");
 		} catch (error) {
 			setMessage(error?.message || "La fusion a échoué.");
@@ -727,6 +738,43 @@ export default function DashboardFusionPage() {
 		}
 	};
 
+	const uploadParentalAuthorization = async (event) => {
+		const file = event.target.files?.[0];
+		const memberId = pendingParentalAuthorizationMemberId;
+		setPendingParentalAuthorizationMemberId(null);
+		event.target.value = "";
+		if (
+			!file ||
+			!Number.isFinite(Number(memberId)) ||
+			!Number.isFinite(Number(activeCampaignId))
+		)
+			return;
+		setBusyAction(`upload-autorisation-parentale-${memberId}`);
+		try {
+			const csrfToken = readCookie("csrftoken");
+			const headers = withApiAuthHeaders();
+			if (csrfToken) headers["X-CSRFToken"] = decodeURIComponent(csrfToken);
+			const form = new FormData();
+			form.append("file", file);
+			const response = await fetch(
+				`/api/campaigns/${activeCampaignId}/members/${memberId}/autorisation-parentale-file/`,
+				{
+					method: "POST",
+					headers,
+					body: form,
+				},
+			);
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			await dispatch(
+				loadCampaignMembers({ campaignId: activeCampaignId, force: true }),
+			).unwrap();
+		} catch (error) {
+			setMessage(error?.message || "Upload de l’autorisation parentale impossible.");
+		} finally {
+			setBusyAction("");
+		}
+	};
+
 	const downloadMemberDocument = async (memberId, documentType) => {
 		if (!Number.isFinite(Number(memberId)) || !Number.isFinite(Number(activeCampaignId))) return;
 		const action = `download-${documentType}-${memberId}`;
@@ -846,6 +894,38 @@ export default function DashboardFusionPage() {
 		);
 	};
 
+	const renderParentalAuthorizationControl = (row) => {
+		if (row.is_major) return "NA";
+		if (row.autorisation_parentale || row.autorisation_parentale_file_uploaded) {
+			return (
+				<button
+					type="button"
+					className="btn-subtle"
+					disabled={busyAction === `download-autorisation-parentale-${row.member_id}`}
+					onClick={() => downloadMemberDocument(row.member_id, "autorisation-parentale")}
+				>
+					{busyAction === `download-autorisation-parentale-${row.member_id}`
+						? "Téléchargement..."
+						: `Télécharger ${row.autorisation_parentale_file_name || "l’autorisation"}`}
+				</button>
+			);
+		}
+		if (!row.is_minor) return "—";
+		return (
+			<button
+				type="button"
+				className="btn-subtle"
+				disabled={busyAction === `upload-autorisation-parentale-${row.member_id}`}
+				onClick={() => {
+					setPendingParentalAuthorizationMemberId(row.member_id);
+					parentalAuthorizationFileInputRef.current?.click();
+				}}
+			>
+				Uploader
+			</button>
+		);
+	};
+
 
 	const renderDetailField = (row, column) => {
 		const value = row[column.key] ?? "";
@@ -879,23 +959,7 @@ export default function DashboardFusionPage() {
 				</button>
 			);
 		}
-		if (column.key === "autorisation_parentale" && row.is_major) {
-			return "NA";
-		}
-		if (column.key === "autorisation_parentale" && value) {
-			return (
-				<button
-					type="button"
-					className="btn-subtle"
-					disabled={busyAction === `download-autorisation-parentale-${row.member_id}`}
-					onClick={() => downloadMemberDocument(row.member_id, "autorisation-parentale")}
-				>
-					{busyAction === `download-autorisation-parentale-${row.member_id}`
-						? "Téléchargement..."
-						: "Télécharger"}
-				</button>
-			);
-		}
+		if (column.key === "autorisation_parentale") return renderParentalAuthorizationControl(row);
 		if (lockedColumns.has(column.key)) return value;
 		return (
 			<input
@@ -1027,10 +1091,10 @@ export default function DashboardFusionPage() {
 					{renderCertificateControl(row)}
 				</td>
 			);
-		if (column.key === "autorisation_parentale" && row.is_major) {
+		if (column.key === "autorisation_parentale") {
 			return (
 				<td key={column.key} className={columnClassName}>
-					NA
+					{renderParentalAuthorizationControl(row)}
 				</td>
 			);
 		}
@@ -1044,22 +1108,6 @@ export default function DashboardFusionPage() {
 						onClick={() => downloadMemberDocument(row.member_id, "photo")}
 					>
 						{busyAction === `download-photo-${row.member_id}` ? "Téléchargement..." : "Télécharger"}
-					</button>
-				</td>
-			);
-		}
-		if (column.key === "autorisation_parentale" && value) {
-			return (
-				<td key={column.key} className={columnClassName}>
-					<button
-						type="button"
-						className="btn-subtle"
-						disabled={busyAction === `download-autorisation-parentale-${row.member_id}`}
-						onClick={() => downloadMemberDocument(row.member_id, "autorisation-parentale")}
-					>
-						{busyAction === `download-autorisation-parentale-${row.member_id}`
-							? "Téléchargement..."
-							: "Télécharger"}
 					</button>
 				</td>
 			);
@@ -1110,6 +1158,13 @@ export default function DashboardFusionPage() {
 					type="file"
 					accept=".pdf,.jpg,.jpeg,.png"
 					onChange={uploadCertificate}
+				/>
+				<input
+					ref={parentalAuthorizationFileInputRef}
+					hidden
+					type="file"
+					accept=".pdf,.jpg,.jpeg,.png"
+					onChange={uploadParentalAuthorization}
 				/>
 			</section>
 		);
@@ -1486,6 +1541,13 @@ export default function DashboardFusionPage() {
 				type="file"
 				accept=".pdf,.jpg,.jpeg,.png"
 				onChange={uploadCertificate}
+			/>
+			<input
+				ref={parentalAuthorizationFileInputRef}
+				hidden
+				type="file"
+				accept=".pdf,.jpg,.jpeg,.png"
+				onChange={uploadParentalAuthorization}
 			/>
 		</section>
 	);

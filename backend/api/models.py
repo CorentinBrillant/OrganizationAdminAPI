@@ -14,6 +14,13 @@ def member_certificat_upload_to(instance, filename):
     return f"members/certificats/{uuid.uuid4().hex}{extension}"
 
 
+def member_autorisation_parentale_upload_to(instance, filename):
+    return (
+        f"members/autorisations_parentales/{settings.DJANGO_ENVIRONMENT}/"
+        f"{uuid.uuid4().hex}.enc"
+    )
+
+
 def ffck_photo_upload_to(instance, filename):
     return f"members/ffck_photos/{uuid.uuid4().hex}.enc"
 
@@ -85,6 +92,15 @@ class Member(models.Model):
     certificat_file_content_type = models.CharField(max_length=255, blank=True, default="")
     certificat_file_size = models.PositiveIntegerField(default=0)
     autorisation_parentale = encrypt(models.URLField(blank=True, default=""))
+    autorisation_parentale_file = models.FileField(
+        upload_to=member_autorisation_parentale_upload_to,
+        blank=True,
+        default="",
+    )
+    autorisation_parentale_file_uploaded_at = models.DateTimeField(null=True, blank=True)
+    autorisation_parentale_file_original_name = models.CharField(max_length=255, blank=True, default="")
+    autorisation_parentale_file_content_type = models.CharField(max_length=255, blank=True, default="")
+    autorisation_parentale_file_size = models.PositiveIntegerField(default=0)
     photo = encrypt(models.URLField(blank=True, default=""))
     option_ia = models.BooleanField(default=False)
     manual_review = models.BooleanField(default=False)

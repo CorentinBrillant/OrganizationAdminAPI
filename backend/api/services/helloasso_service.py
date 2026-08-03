@@ -1,11 +1,11 @@
 import json
 import os
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+import requests
 
 
 class HelloAssoConfigError(Exception):
@@ -23,27 +23,6 @@ class HelloAssoAuthorizationRequiredError(HelloAssoAPIError):
 def _is_helloasso_host(hostname: str | None) -> bool:
     hostname = (hostname or "").lower()
     return hostname == "helloasso.com" or hostname.endswith(".helloasso.com")
-
-
-class _DocumentRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, request, file_pointer, status_code, message, headers, new_url):
-        redirected_request = super().redirect_request(
-            request,
-            file_pointer,
-            status_code,
-            message,
-            headers,
-            new_url,
-        )
-        if redirected_request is None:
-            return None
-
-        destination = urllib.parse.urlparse(new_url)
-        if destination.scheme != "https":
-            return None
-        if not _is_helloasso_host(destination.hostname):
-            redirected_request.remove_header("Authorization")
-        return redirected_request
 
 
 @dataclass(frozen=True)
@@ -82,21 +61,37 @@ class HelloAssoService:
                 "HELLOASSO_CLIENT_ID and HELLOASSO_CLIENT_SECRET must be configured."
             )
 
-    def _request_json(self, request: urllib.request.Request) -> dict:
+    def _request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        data: dict[str, str] | None = None,
+    ) -> dict:
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
+            response = requests.request(
+                method,
+                url,
+                headers=headers,
+                data=data,
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as exc:
+            response = exc.response
+            body = response.text if response is not None else ""
             try:
                 payload = json.loads(body)
             except json.JSONDecodeError:
                 payload = {"raw": body}
 
             detail = payload.get("message") or payload.get("error_description") or payload
-            raise HelloAssoAPIError(f"HelloAsso HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise HelloAssoAPIError(f"HelloAsso network error: {exc.reason}") from exc
+            status_code = response.status_code if response is not None else "unknown"
+            raise HelloAssoAPIError(f"HelloAsso HTTP {status_code}: {detail}") from exc
+        except requests.RequestException as exc:
+            raise HelloAssoAPIError(f"HelloAsso network error: {exc}") from exc
 
     def get_access_token(self) -> str:
         if self._access_token and time.monotonic() < self._access_token_expires_at:
@@ -122,19 +117,15 @@ class HelloAssoService:
         )["access_token"]
 
     def _request_access_token(self, fields: dict[str, str]) -> dict:
-        body = urllib.parse.urlencode(fields).encode("utf-8")
-
-        request = urllib.request.Request(
+        payload = self._request_json(
+            "POST",
             self.token_url,
-            data=body,
-            method="POST",
             headers={
                 **self._base_headers(),
                 "Content-Type": "application/x-www-form-urlencoded",
             },
+            data=fields,
         )
-
-        payload = self._request_json(request)
         token = payload.get("access_token")
         if not token:
             raise HelloAssoAPIError("No access_token returned by HelloAsso.")
@@ -191,38 +182,46 @@ class HelloAssoService:
     def download_document(self, url: str) -> HelloAssoDocument:
         parsed_url = urllib.parse.urlparse(str(url or "").strip())
         hostname = (parsed_url.hostname or "").lower()
-        if parsed_url.scheme != "https" or not hostname or not _is_helloasso_host(hostname):
-            raise HelloAssoAPIError("Document URL must use HTTPS on a HelloAsso domain.")
+        path_parts = [part for part in parsed_url.path.split("/") if part]
+        if (
+            parsed_url.scheme != "https"
+            or hostname != "docs.helloasso.com"
+            or len(path_parts) != 2
+            or path_parts[0] != "customFieldsAnswer"
+            or not path_parts[1].isdigit()
+        ):
+            raise HelloAssoAPIError(
+                "Document URL must be https://docs.helloasso.com/customFieldsAnswer/{id}."
+            )
 
         token = self.get_access_token()
-        request = urllib.request.Request(
-            parsed_url.geturl(),
-            method="GET",
-            headers={
-                **self._base_headers(),
-                "Accept": "*/*",
-                "Authorization": f"Bearer {token}",
-            },
-        )
         try:
-            opener = urllib.request.build_opener(_DocumentRedirectHandler())
-            with opener.open(request, timeout=30) as response:
-                return HelloAssoDocument(
-                    content=response.read(),
-                    content_type=response.headers.get_content_type(),
-                    content_disposition=response.headers.get("Content-Disposition", ""),
-                )
-        except urllib.error.HTTPError as exc:
-            if exc.code == 403 and hostname == "docs.helloasso.com":
+            response = requests.get(
+                parsed_url.geturl(),
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return HelloAssoDocument(
+                content=response.content,
+                content_type=response.headers.get("Content-Type", "application/octet-stream"),
+                content_disposition=response.headers.get("Content-Disposition", ""),
+            )
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response else None
+            if status_code == 403 and hostname == "docs.helloasso.com":
                 raise HelloAssoAPIError(
                     "HelloAsso denied access to this uploaded document. "
                     "The API client must have the OrganizationAdmin role."
                 ) from exc
             raise HelloAssoAPIError(
-                f"HelloAsso HTTP {exc.code} while downloading document."
+                f"HelloAsso HTTP {status_code} while downloading document."
             ) from exc
-        except urllib.error.URLError as exc:
-            raise HelloAssoAPIError(f"HelloAsso network error: {exc.reason}") from exc
+        except requests.RequestException as exc:
+            raise HelloAssoAPIError(f"HelloAsso network error: {exc}") from exc
 
     def get_form_items(
         self,
@@ -247,16 +246,14 @@ class HelloAssoService:
             f"{form_type}/{form_slug}/items?{query}"
         )
 
-        request = urllib.request.Request(
+        return self._request_json(
+            "GET",
             url,
-            method="GET",
             headers={
                 **self._base_headers(),
                 "Authorization": f"Bearer {token}",
             },
         )
-
-        return self._request_json(request)
 
     def get_membership_forms(self, organization_slug: str) -> list[dict]:
         if not organization_slug:
@@ -275,16 +272,14 @@ class HelloAssoService:
                 }
             )
             url = f"{self.api_base_url}/organizations/{organization_slug}/forms?{query}"
-            request = urllib.request.Request(
+            payload = self._request_json(
+                "GET",
                 url,
-                method="GET",
                 headers={
                     **self._base_headers(),
                     "Authorization": f"Bearer {token}",
                 },
             )
-
-            payload = self._request_json(request)
             page_data = payload.get("data") if isinstance(payload, dict) else None
             if not isinstance(page_data, list):
                 page_data = []

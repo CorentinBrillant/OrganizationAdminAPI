@@ -122,6 +122,17 @@ export async function fetchCampaignMembers(campaignId, options = {}) {
           : null,
     },
     autorisation_parentale: String(member?.autorisation_parentale || '').trim(),
+    autorisation_parentale_file: {
+      uploaded: Boolean(member?.autorisation_parentale_file?.uploaded),
+      filename: String(member?.autorisation_parentale_file?.filename || '').trim(),
+      content_type: String(member?.autorisation_parentale_file?.content_type || '').trim(),
+      size: Number(member?.autorisation_parentale_file?.size) || 0,
+      uploaded_at:
+        typeof member?.autorisation_parentale_file?.uploaded_at === 'string' &&
+        member.autorisation_parentale_file.uploaded_at.trim()
+          ? member.autorisation_parentale_file.uploaded_at
+          : null,
+    },
     photo: String(member?.photo || '').trim(),
     option_ia: Boolean(member?.option_ia),
     manual_review: Boolean(member?.manual_review),

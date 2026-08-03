@@ -12,6 +12,7 @@ from .views import (
     badge_sync_campaign_members,
     campaign_manual_edition,
     campaign_member_autorisation_parentale_download,
+    campaign_member_autorisation_parentale_upload,
     campaign_member_certificat_delete,
     campaign_member_certificat_download,
     campaign_member_certificat_upload,
@@ -82,6 +83,11 @@ urlpatterns = [
         "campaigns/<int:campaign_id>/members/<int:member_id>/autorisation-parentale/download/",
         _protected(campaign_member_autorisation_parentale_download),
         name="campaign-member-autorisation-parentale-download",
+    ),
+    path(
+        "campaigns/<int:campaign_id>/members/<int:member_id>/autorisation-parentale-file/",
+        _protected(campaign_member_autorisation_parentale_upload),
+        name="campaign-member-autorisation-parentale-upload",
     ),
     path(
         "campaigns/<int:campaign_id>/members/<int:member_id>/certificat-file/delete/",

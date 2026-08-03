@@ -327,6 +327,9 @@ def _resolve_campaign_member(campaign_id, member_id):
 
 def _serialize_member(member: Member) -> dict:
     certificat_file_name = member.certificat_file.name if member.certificat_file else ""
+    autorisation_parentale_file_name = (
+        member.autorisation_parentale_file.name if member.autorisation_parentale_file else ""
+    )
     return {
         "id": member.id,
         "first_name": member.first_name,
@@ -352,6 +355,25 @@ def _serialize_member(member: Member) -> dict:
             ),
         },
         "autorisation_parentale": member.autorisation_parentale,
+        "autorisation_parentale_file": {
+            "uploaded": bool(autorisation_parentale_file_name),
+            "filename": (
+                member.autorisation_parentale_file_original_name
+                if autorisation_parentale_file_name
+                else ""
+            ),
+            "content_type": (
+                member.autorisation_parentale_file_content_type
+                if autorisation_parentale_file_name
+                else ""
+            ),
+            "size": member.autorisation_parentale_file_size if autorisation_parentale_file_name else 0,
+            "uploaded_at": (
+                member.autorisation_parentale_file_uploaded_at.isoformat()
+                if member.autorisation_parentale_file_uploaded_at and autorisation_parentale_file_name
+                else None
+            ),
+        },
         "photo": member.photo,
         "option_ia": member.option_ia,
         "manual_review": member.manual_review,
@@ -1043,10 +1065,81 @@ def campaign_member_autorisation_parentale_download(request, campaign_id, member
     if error_response is not None:
         return error_response
 
+    if member.autorisation_parentale_file:
+        fernet, key_error = _build_member_certificat_fernet()
+        if key_error:
+            return JsonResponse({"error": key_error}, status=500)
+        try:
+            decrypted_content = fernet.decrypt(member.autorisation_parentale_file.read())
+        except InvalidToken:
+            return JsonResponse({"error": "Failed to decrypt parental authorization file."}, status=500)
+
+        download_name = (
+            member.autorisation_parentale_file_original_name
+            or Path(member.autorisation_parentale_file.name).name
+        )
+        response = HttpResponse(
+            decrypted_content,
+            content_type=member.autorisation_parentale_file_content_type or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{download_name}"'
+        return response
+
     if not member.autorisation_parentale:
         return JsonResponse({"error": "No parental authorization for this member."}, status=404)
 
     return _helloasso_document_response(member.autorisation_parentale, "autorisation-parentale")
+
+
+@require_POST
+def campaign_member_autorisation_parentale_upload(request, campaign_id, member_id):
+    _, member, error_response = _resolve_campaign_member(campaign_id, member_id)
+    if error_response is not None:
+        return error_response
+
+    upload = request.FILES.get("file")
+    if upload is None:
+        return JsonResponse({"error": "'file' is required as multipart upload."}, status=400)
+
+    validation_error = _validate_certificat_upload(upload)
+    if validation_error:
+        return JsonResponse({"error": validation_error}, status=400)
+
+    fernet, key_error = _build_member_certificat_fernet()
+    if key_error:
+        return JsonResponse({"error": key_error}, status=500)
+
+    raw_content = upload.read()
+    if not raw_content:
+        return JsonResponse({"error": "Uploaded file is empty."}, status=400)
+
+    old_file_name = (
+        member.autorisation_parentale_file.name if member.autorisation_parentale_file else ""
+    )
+    member.autorisation_parentale_file.save(
+        f"{upload.name}.enc",
+        ContentFile(fernet.encrypt(raw_content)),
+        save=False,
+    )
+    member.autorisation_parentale_file_original_name = str(getattr(upload, "name", "")).strip()
+    member.autorisation_parentale_file_content_type = (
+        str(getattr(upload, "content_type", "")).strip().lower()
+    )
+    member.autorisation_parentale_file_size = len(raw_content)
+    member.autorisation_parentale_file_uploaded_at = timezone.now()
+    member.save(
+        update_fields=[
+            "autorisation_parentale_file",
+            "autorisation_parentale_file_original_name",
+            "autorisation_parentale_file_content_type",
+            "autorisation_parentale_file_size",
+            "autorisation_parentale_file_uploaded_at",
+        ]
+    )
+    if old_file_name and old_file_name != member.autorisation_parentale_file.name:
+        member.autorisation_parentale_file.storage.delete(old_file_name)
+
+    return JsonResponse({"member": _serialize_member(member)})
 
 
 @require_http_methods(["DELETE"])

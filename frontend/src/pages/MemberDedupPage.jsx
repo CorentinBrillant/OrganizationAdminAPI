@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
 import { fetchMemberDuplicateSuggestions, mergeMemberDuplicateSuggestion } from '../api/memberDedup'
-import { loadCampaignMembers, setPageFilters } from '../store/campaignsSlice'
+import { loadCampaignFfckRows, loadCampaignMembers, setPageFilters } from '../store/campaignsSlice'
 import '../styles/memberDedup.css'
 
 function memberLabel(member) {
@@ -95,6 +95,7 @@ export default function MemberDedupPage() {
         return next
       })
       await dispatch(loadCampaignMembers({ campaignId, force: true })).unwrap()
+      await dispatch(loadCampaignFfckRows({ campaignId, force: true })).unwrap()
       await loadSuggestions()
       setStatus('Fusion terminée')
     } catch (nextError) {
@@ -133,7 +134,10 @@ export default function MemberDedupPage() {
           failureCount += 1
         }
       }
-      if (successCount > 0) await dispatch(loadCampaignMembers({ campaignId, force: true })).unwrap()
+      if (successCount > 0) {
+        await dispatch(loadCampaignMembers({ campaignId, force: true })).unwrap()
+        await dispatch(loadCampaignFfckRows({ campaignId, force: true })).unwrap()
+      }
       await loadSuggestions()
       setStatus(failureCount > 0 ? `Fusion en lot partielle: ${successCount} réussie(s), ${failureCount} en échec` : `Fusion en lot terminée: ${successCount} suggestion(s) fusionnée(s)`)
     } finally {

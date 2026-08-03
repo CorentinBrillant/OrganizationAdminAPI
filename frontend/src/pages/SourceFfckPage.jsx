@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 
 import { importCampaignFfckExport } from '../api/campaigns'
-import { loadCampaignFfckRows, setPageFilters } from '../store/campaignsSlice'
+import { loadCampaignFfckRows, loadCampaignMembers, setPageFilters } from '../store/campaignsSlice'
 import { formatApiDateTime, mapFfckRowToSourceRow, sourceColumns } from '../mappers/ffckMappers'
 import '../styles/sourceFfck.css'
 
@@ -62,6 +62,7 @@ export default function SourceFfckPage() {
     try {
       await importCampaignFfckExport(campaignId)
       await dispatch(loadCampaignFfckRows({ campaignId, force: true })).unwrap()
+      await dispatch(loadCampaignMembers({ campaignId, force: true })).unwrap()
     } catch (nextError) {
       setImportError(`Échec de l'import FFCK (${activeCampaign}) : ${nextError.message || 'Erreur inconnue'}`)
     } finally {

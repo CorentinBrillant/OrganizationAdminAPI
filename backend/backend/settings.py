@@ -155,6 +155,7 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.getenv("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media")))
+DJANGO_ENVIRONMENT = os.getenv("DJANGO_ENVIRONMENT", "development").strip() or "development"
 MEMBER_CERTIFICAT_MAX_BYTES = int(
     os.getenv("MEMBER_CERTIFICAT_MAX_BYTES", str(5 * 1024 * 1024)) or str(5 * 1024 * 1024)
 )

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   dispatchMock,
   fetchMemberDuplicateSuggestionsMock,
+  loadCampaignFfckRowsMock,
   loadCampaignMembersMock,
   mergeMemberDuplicateSuggestionMock,
   setPageFiltersMock,
@@ -12,6 +13,7 @@ const {
 } = vi.hoisted(() => ({
   dispatchMock: vi.fn(),
   fetchMemberDuplicateSuggestionsMock: vi.fn(),
+  loadCampaignFfckRowsMock: vi.fn(),
   loadCampaignMembersMock: vi.fn(),
   mergeMemberDuplicateSuggestionMock: vi.fn(),
   setPageFiltersMock: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock('../../api/memberDedup', () => ({
 }))
 
 vi.mock('../../store/campaignsSlice', () => ({
+  loadCampaignFfckRows: (...args) => loadCampaignFfckRowsMock(...args),
   loadCampaignMembers: (...args) => loadCampaignMembersMock(...args),
   setPageFilters: (payload) => {
     setPageFiltersMock(payload)
@@ -68,6 +71,7 @@ describe('MemberDedupPage', () => {
     dispatchMock.mockImplementation(() => ({ unwrap: () => Promise.resolve() }))
     fetchMemberDuplicateSuggestionsMock.mockResolvedValue({ suggestions, generation: null })
     mergeMemberDuplicateSuggestionMock.mockResolvedValue({})
+    loadCampaignFfckRowsMock.mockImplementation((payload) => ({ type: 'ffck/reload', payload }))
     loadCampaignMembersMock.mockImplementation((payload) => ({ type: 'members/reload', payload }))
   })
 
@@ -91,5 +95,6 @@ describe('MemberDedupPage', () => {
 
     await waitFor(() => expect(mergeMemberDuplicateSuggestionMock).toHaveBeenCalledWith(11, 5, 1))
     expect(loadCampaignMembersMock).toHaveBeenCalledWith({ campaignId: 11, force: true })
+    expect(loadCampaignFfckRowsMock).toHaveBeenCalledWith({ campaignId: 11, force: true })
   })
 })
