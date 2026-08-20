@@ -14,11 +14,14 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
+from django.core.validators import validate_email
 from django.db import transaction
+from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -33,12 +36,13 @@ from .models import (
     Campaign,
     FfckExport,
     FfckExportRow,
-    HelloAssoAuthorizationToken,
     HelloAssoAuthorizationRequest,
+    HelloAssoAuthorizationToken,
     HelloAssoImport,
     HelloAssoItem,
     Member,
     MemberDuplicateSuggestion,
+    UserActionToken,
     UserLogin,
 )
 from .services.badge_import_service import (
@@ -65,6 +69,13 @@ from .services.member_sync_service import (
     BadgeMemberSyncService,
     FfckMemberSyncService,
     HelloAssoMemberSyncService,
+)
+from .services.user_action_token_service import InvalidActionTokenError, UserActionTokenService
+from .services.user_service import (
+    PasswordEmailDeliveryError,
+    UserAlreadyExistsError,
+    UserNameRequiredError,
+    UserService,
 )
 
 
@@ -367,10 +378,13 @@ def _serialize_member(member: Member) -> dict:
                 if autorisation_parentale_file_name
                 else ""
             ),
-            "size": member.autorisation_parentale_file_size if autorisation_parentale_file_name else 0,
+            "size": member.autorisation_parentale_file_size
+            if autorisation_parentale_file_name
+            else 0,
             "uploaded_at": (
                 member.autorisation_parentale_file_uploaded_at.isoformat()
-                if member.autorisation_parentale_file_uploaded_at and autorisation_parentale_file_name
+                if member.autorisation_parentale_file_uploaded_at
+                and autorisation_parentale_file_name
                 else None
             ),
         },
@@ -671,6 +685,7 @@ def auth_login(request):
             "user": {
                 "id": user.id,
                 "username": user.get_username(),
+                "is_admin": user.is_staff,
             },
         }
     )
@@ -687,6 +702,7 @@ def auth_session(request):
                 {
                     "id": user.id,
                     "username": user.get_username(),
+                    "is_admin": user.is_staff,
                 }
                 if user is not None
                 else None
@@ -731,6 +747,194 @@ def auth_change_password(request):
     user.set_password(new_password)
     user.save(update_fields=["password"])
     return JsonResponse({"password_changed": True})
+
+
+def _serialize_admin_user(user) -> dict:
+    has_pending_setup = getattr(user, "has_pending_setup", None)
+    if has_pending_setup is None:
+        has_pending_setup = UserActionToken.objects.filter(
+            user=user,
+            action=UserActionToken.ACTION_SET_PASSWORD,
+            used_at__isnull=True,
+            invalidated_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).exists()
+    if user.has_usable_password():
+        password_status = "defined"
+    elif has_pending_setup:
+        password_status = "pending"
+    else:
+        password_status = "not_set"
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": user.is_active,
+        "is_admin": user.is_staff,
+        "password_status": password_status,
+    }
+
+
+def _admin_user_from_id(user_id):
+    return get_user_model().objects.filter(id=user_id).first()
+
+
+def _password_email_rate_limited(key: str) -> bool:
+    timeout = int(getattr(settings, "PASSWORD_EMAIL_RATE_LIMIT_SECONDS", 60))
+    limit = int(getattr(settings, "PASSWORD_EMAIL_RATE_LIMIT_MAX", 5))
+    cache_key = f"password-email:{hashlib.sha256(key.encode('utf-8')).hexdigest()}"
+    if cache.add(cache_key, 1, timeout=timeout):
+        return False
+    try:
+        return int(cache.incr(cache_key)) > limit
+    except ValueError:
+        return False
+
+
+@require_http_methods(["GET", "POST"])
+def admin_users(request):
+    User = get_user_model()
+    if request.method == "GET":
+        query = str(request.GET.get("q", "")).strip()
+        pending_setup_tokens = UserActionToken.objects.filter(
+            user_id=OuterRef("pk"),
+            action=UserActionToken.ACTION_SET_PASSWORD,
+            used_at__isnull=True,
+            invalidated_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        )
+        users = User.objects.annotate(has_pending_setup=Exists(pending_setup_tokens)).order_by(
+            "email", "username"
+        )
+        if query:
+            users = users.filter(
+                Q(email__icontains=query)
+                | Q(username__icontains=query)
+                | Q(first_name__icontains=query)
+                | Q(last_name__icontains=query)
+            )
+        return JsonResponse({"users": [_serialize_admin_user(user) for user in users[:100]]})
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+    email = str(payload.get("email", "")).strip()
+    first_name = str(payload.get("first_name", "")).strip()
+    last_name = str(payload.get("last_name", "")).strip()
+    send_password_email = payload.get("send_password_email", True)
+    if not email:
+        return JsonResponse({"error": "'email' is required."}, status=400)
+    if not isinstance(send_password_email, bool):
+        return JsonResponse({"error": "'send_password_email' must be a boolean."}, status=400)
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({"error": "'email' is invalid."}, status=400)
+    try:
+        user = UserService.create_user(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            send_password_email=send_password_email,
+        )
+    except UserAlreadyExistsError:
+        return JsonResponse({"error": "An account already uses this email address."}, status=409)
+    except UserNameRequiredError:
+        return JsonResponse({"error": "'first_name' and 'last_name' are required."}, status=400)
+    return JsonResponse({"user": _serialize_admin_user(user)}, status=201)
+
+
+@require_GET
+def admin_user_detail(request, user_id):
+    user = _admin_user_from_id(user_id)
+    if user is None:
+        return JsonResponse({"error": "User not found."}, status=404)
+    return JsonResponse({"user": _serialize_admin_user(user)})
+
+
+def _send_admin_password_link(request, user_id, action: str):
+    user = _admin_user_from_id(user_id)
+    if user is None:
+        return JsonResponse({"error": "User not found."}, status=404)
+    if not user.is_active:
+        return JsonResponse({"error": "This user is disabled."}, status=400)
+    if action == UserActionToken.ACTION_SET_PASSWORD and user.has_usable_password():
+        return JsonResponse({"error": "This user has already defined a password."}, status=400)
+    if action == UserActionToken.ACTION_PASSWORD_RESET and not user.has_usable_password():
+        return JsonResponse({"error": "This user has not defined a password yet."}, status=400)
+    if _password_email_rate_limited(f"admin:{request.auth_user.id}:{user.id}"):
+        return JsonResponse({"error": "Too many requests. Please try again later."}, status=429)
+    try:
+        UserService.send_password_link(user, action)
+    except PasswordEmailDeliveryError:
+        return JsonResponse(
+            {"error": "Unable to send the password email. Please try again."}, status=503
+        )
+    return JsonResponse({"user": _serialize_admin_user(user), "email_sent": True})
+
+
+@require_POST
+def admin_user_password_setup(request, user_id):
+    return _send_admin_password_link(request, user_id, UserActionToken.ACTION_SET_PASSWORD)
+
+
+@require_POST
+def admin_user_password_reset(request, user_id):
+    return _send_admin_password_link(request, user_id, UserActionToken.ACTION_PASSWORD_RESET)
+
+
+@csrf_exempt
+@require_POST
+def auth_set_password(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+    raw_token = payload.get("token") if isinstance(payload, dict) else None
+    password = payload.get("password") if isinstance(payload, dict) else None
+    password_confirmation = (
+        payload.get("password_confirmation") if isinstance(payload, dict) else None
+    )
+    if not all(isinstance(value, str) and value for value in (raw_token, password)):
+        return JsonResponse({"error": "Token and password are required."}, status=400)
+    if password != password_confirmation:
+        return JsonResponse({"error": "Passwords do not match."}, status=400)
+    try:
+        UserActionTokenService.set_password(raw_token, password)
+    except InvalidActionTokenError:
+        return JsonResponse({"error": "This password link is invalid or expired."}, status=400)
+    except ValidationError as exc:
+        return JsonResponse({"error": " ".join(exc.messages)}, status=400)
+    response = JsonResponse({"password_set": True})
+    response.delete_cookie("api_token", path="/")
+    return response
+
+
+@csrf_exempt
+@require_POST
+def auth_password_reset_request(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") if request.body else "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+    email = str(payload.get("email", "")).strip() if isinstance(payload, dict) else ""
+    if not email:
+        return JsonResponse({"error": "'email' is required."}, status=400)
+    if _password_email_rate_limited(
+        f"public:{_request_ip_address(request) or 'unknown'}:{email.lower()}"
+    ):
+        return JsonResponse({"requested": True})
+    user = get_user_model().objects.filter(email__iexact=email, is_active=True).first()
+    if user is not None and user.has_usable_password():
+        try:
+            UserService.send_password_link(user, UserActionToken.ACTION_PASSWORD_RESET)
+        except PasswordEmailDeliveryError:
+            pass
+    return JsonResponse({"requested": True})
 
 
 @require_POST
@@ -1072,7 +1276,9 @@ def campaign_member_autorisation_parentale_download(request, campaign_id, member
         try:
             decrypted_content = fernet.decrypt(member.autorisation_parentale_file.read())
         except InvalidToken:
-            return JsonResponse({"error": "Failed to decrypt parental authorization file."}, status=500)
+            return JsonResponse(
+                {"error": "Failed to decrypt parental authorization file."}, status=500
+            )
 
         download_name = (
             member.autorisation_parentale_file_original_name
@@ -1080,7 +1286,8 @@ def campaign_member_autorisation_parentale_download(request, campaign_id, member
         )
         response = HttpResponse(
             decrypted_content,
-            content_type=member.autorisation_parentale_file_content_type or "application/octet-stream",
+            content_type=member.autorisation_parentale_file_content_type
+            or "application/octet-stream",
         )
         response["Content-Disposition"] = f'attachment; filename="{download_name}"'
         return response

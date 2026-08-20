@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
@@ -52,5 +52,13 @@ describe('Sidebar', () => {
       payload: 'Campagne 2025',
     })
     expect(dispatchMock).toHaveBeenNthCalledWith(2, { type: 'campaigns/loadCampaigns' })
+  })
+
+  it('masque la gestion des utilisateurs hors session administrateur', () => {
+    const { rerender } = render(<Sidebar activePage="dashboard" onPageChange={vi.fn()} isAdmin={false} />)
+    expect(screen.queryByRole('button', { name: 'Utilisateurs' })).not.toBeInTheDocument()
+
+    rerender(<Sidebar activePage="dashboard" onPageChange={vi.fn()} isAdmin />)
+    expect(screen.getByRole('button', { name: 'Utilisateurs' })).toBeInTheDocument()
   })
 })

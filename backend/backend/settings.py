@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,9 +30,30 @@ API_AUTH_ENFORCED = (os.getenv("API_AUTH_ENFORCED", "1") == "1") and not RUNNING
 API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "").strip()
 API_AUTH_TOKEN_TTL_SECONDS = int(os.getenv("API_AUTH_TOKEN_TTL_SECONDS", "3600") or "3600")
 API_AUTH_TOKEN_SALT = os.getenv("API_AUTH_TOKEN_SALT", "organization-admin-api-user-token").strip()
+USER_ACTION_TOKEN_TTL_SECONDS = int(os.getenv("USER_ACTION_TOKEN_TTL_SECONDS", "86400") or "86400")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
+EMAIL_BACKEND = os.getenv(
+    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+).strip()
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost").strip()
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "25") or "25")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "noreply@localhost").strip()
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "0") == "1"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
+PASSWORD_EMAIL_RATE_LIMIT_SECONDS = int(
+    os.getenv("PASSWORD_EMAIL_RATE_LIMIT_SECONDS", "60") or "60"
+)
+PASSWORD_EMAIL_RATE_LIMIT_MAX = int(os.getenv("PASSWORD_EMAIL_RATE_LIMIT_MAX", "5") or "5")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
+
+if not DEBUG:
+    parsed_frontend_url = urlparse(FRONTEND_URL)
+    if parsed_frontend_url.scheme != "https" or not parsed_frontend_url.netloc:
+        raise ValueError("FRONTEND_URL must be an absolute HTTPS URL in production.")
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -126,6 +148,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 16},
     },
     {
         "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",

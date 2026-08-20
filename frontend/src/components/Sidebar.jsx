@@ -53,11 +53,18 @@ const navItems = [
 		compact: "MC",
 		compactImage: "/mon.png",
 	},
+	{
+		page: "users",
+		label: "Utilisateurs",
+		compact: "US",
+		adminOnly: true,
+	},
 ];
 
 export default function Sidebar({
 	activePage,
 	onPageChange,
+	isAdmin = false,
 }) {
 	const dispatch = useDispatch();
 	const activeCampaign = useSelector((state) => state.campaigns.activeCampaign);
@@ -88,7 +95,7 @@ export default function Sidebar({
 		<aside className="shared-sidebar">
 			<div className="sidebar-main">
 				<nav className="nav" aria-label="Navigation">
-					{navItems.map((item) => (
+					{navItems.filter((item) => !item.adminOnly || isAdmin).map((item) => (
 						<button
 							className={`nav-item-${item.page}${activePage === item.page ? " active" : ""}`}
 							key={item.page}

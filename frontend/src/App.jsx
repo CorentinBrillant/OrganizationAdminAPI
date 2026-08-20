@@ -11,6 +11,8 @@ import SettingsCampagnePage from './pages/SettingsCampagnePage'
 import SourceBadgesPage from './pages/SourceBadgesPage'
 import SourceFfckPage from './pages/SourceFfckPage'
 import SourceHelloAssoPage from './pages/SourceHelloAssoPage'
+import SetPasswordPage from './pages/SetPasswordPage'
+import UserManagementPage from './pages/UserManagementPage'
 
 const pages = {
   dashboard: DashboardFusionPage,
@@ -20,6 +22,7 @@ const pages = {
   dedup: MemberDedupPage,
   monitoring: MonitoringCampagnesPage,
   settings: SettingsCampagnePage,
+  users: UserManagementPage,
 }
 
 function App() {
@@ -28,8 +31,10 @@ function App() {
   const [authenticated, setAuthenticated] = useState(false)
   const [authUser, setAuthUser] = useState(null)
   const activeCampaign = useSelector((state) => state.campaigns.activeCampaign)
-  const ActivePage = useMemo(() => pages[activePage] || DashboardFusionPage, [activePage])
-  const activePageRenderKey = `${activePage}:${String(activeCampaign || '')}`
+  const visiblePage = activePage === 'users' && !authUser?.isAdmin ? 'dashboard' : activePage
+  const ActivePage = useMemo(() => pages[visiblePage] || DashboardFusionPage, [visiblePage])
+  const activePageRenderKey = `${visiblePage}:${String(activeCampaign || '')}`
+  const isPasswordSetupPage = window.location.pathname === '/set-password'
 
   useEffect(() => {
     const bootstrapAuth = async () => {
@@ -47,7 +52,7 @@ function App() {
           setAuthenticated(true)
           setAuthUser(
             session?.user && typeof session.user === 'object'
-              ? { name: String(session.user.username || '').trim(), role: 'Utilisateur' }
+              ? { name: String(session.user.username || '').trim(), role: session.user.is_admin ? 'Administrateur' : 'Utilisateur', isAdmin: Boolean(session.user.is_admin) }
               : null,
           )
         } else {
@@ -91,7 +96,7 @@ function App() {
     setAuthenticated(true)
     setAuthUser(
       result?.user && typeof result.user === 'object'
-        ? { name: String(result.user.username || '').trim(), role: 'Utilisateur' }
+        ? { name: String(result.user.username || '').trim(), role: result.user.is_admin ? 'Administrateur' : 'Utilisateur', isAdmin: Boolean(result.user.is_admin) }
         : null,
     )
   }
@@ -117,13 +122,15 @@ function App() {
     )
   }
 
+  if (isPasswordSetupPage) return <SetPasswordPage />
+
   if (!authenticated) {
     return <LoginPage onLogin={handleLogin} />
   }
 
   return (
     <div className="app-shell">
-      <Sidebar activePage={activePage} onPageChange={setActivePage} />
+      <Sidebar activePage={visiblePage} onPageChange={setActivePage} isAdmin={authUser?.isAdmin} />
       <main className="app-main">
         <ActivePage key={activePageRenderKey} user={authUser} onLogout={handleLogout} />
       </main>

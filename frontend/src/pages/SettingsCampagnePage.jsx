@@ -189,6 +189,7 @@ export default function SettingsCampagnePage({ user = null, onLogout = null }) {
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
             autoComplete="new-password"
+            minLength={16}
             required
             disabled={changingPassword || !user?.name}
           />
@@ -201,6 +202,7 @@ export default function SettingsCampagnePage({ user = null, onLogout = null }) {
             value={newPasswordConfirmation}
             onChange={(event) => setNewPasswordConfirmation(event.target.value)}
             autoComplete="new-password"
+            minLength={16}
             required
             disabled={changingPassword || !user?.name}
           />

@@ -38,9 +38,25 @@ services:
       DB_PASSWORD: organization_admin
       DB_HOST: db
       DB_PORT: "5432"
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.mail.yahoo.com}
+      EMAIL_PORT: ${EMAIL_PORT:-465}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:?Set EMAIL_HOST_USER in .env.local}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:?Set EMAIL_HOST_PASSWORD in .env.local}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-0}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-1}
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=2).close()"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   frontend:
     build:
@@ -55,4 +71,5 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       VITE_API_AUTH_TOKEN: ${VITE_API_AUTH_TOKEN:-}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy

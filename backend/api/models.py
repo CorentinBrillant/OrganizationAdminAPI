@@ -15,10 +15,7 @@ def member_certificat_upload_to(instance, filename):
 
 
 def member_autorisation_parentale_upload_to(instance, filename):
-    return (
-        f"members/autorisations_parentales/{settings.DJANGO_ENVIRONMENT}/"
-        f"{uuid.uuid4().hex}.enc"
-    )
+    return f"members/autorisations_parentales/{settings.DJANGO_ENVIRONMENT}/{uuid.uuid4().hex}.enc"
 
 
 def ffck_photo_upload_to(instance, filename):
@@ -98,8 +95,12 @@ class Member(models.Model):
         default="",
     )
     autorisation_parentale_file_uploaded_at = models.DateTimeField(null=True, blank=True)
-    autorisation_parentale_file_original_name = models.CharField(max_length=255, blank=True, default="")
-    autorisation_parentale_file_content_type = models.CharField(max_length=255, blank=True, default="")
+    autorisation_parentale_file_original_name = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+    autorisation_parentale_file_content_type = models.CharField(
+        max_length=255, blank=True, default=""
+    )
     autorisation_parentale_file_size = models.PositiveIntegerField(default=0)
     photo = encrypt(models.URLField(blank=True, default=""))
     option_ia = models.BooleanField(default=False)
@@ -385,4 +386,32 @@ class UserLogin(models.Model):
         indexes = [
             models.Index(fields=("user", "-logged_in_at")),
             models.Index(fields=("-logged_in_at",)),
+        ]
+
+
+class UserActionToken(models.Model):
+    ACTION_SET_PASSWORD = "set_password"
+    ACTION_PASSWORD_RESET = "password_reset"
+    ACTION_CHOICES = (
+        (ACTION_SET_PASSWORD, "Set password"),
+        (ACTION_PASSWORD_RESET, "Password reset"),
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="action_tokens",
+    )
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES)
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=("user", "action", "expires_at")),
+            models.Index(fields=("token_hash",)),
         ]

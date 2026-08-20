@@ -13,6 +13,58 @@
 	background: var(--bg);
 }
 
+.user-management-page,
+.password-link-page {
+	max-width: 1320px;
+	margin: 0 auto;
+	padding: 32px;
+}
+
+.user-management-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 18px;
+	margin-top: 20px;
+}
+
+.user-management-card,
+.password-link-card {
+	display: grid;
+	align-content: start;
+	gap: 10px;
+	padding: 22px;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--surface);
+}
+
+.user-management-card input,
+.password-link-card input {
+	width: 100%;
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--fg);
+	background: var(--bg);
+}
+
+.user-management-checkbox { display: flex; gap: 8px; align-items: center; }
+.user-management-checkbox input { width: auto; }
+.user-management-search { display: flex; gap: 8px; }
+.user-management-list { display: grid; gap: 6px; max-height: 420px; overflow: auto; }
+.user-management-list button { display: grid; gap: 2px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--fg); background: var(--bg); text-align: left; }
+.user-management-list button.active { border-color: var(--accent); }
+.user-management-list span { color: var(--muted); font-size: .86rem; }
+.user-status-defined { color: var(--accent); font-weight: 700; }
+.user-status-pending { color: #e4a43a; font-weight: 700; }
+.password-link-page { min-height: 100%; display: grid; place-items: center; }
+.password-link-card { width: min(100%, 460px); }
+.user-management-dialog { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / .55); }
+.user-management-dialog > div { width: min(100%, 460px); padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.user-management-dialog button + button { margin-left: 8px; }
+
+@media (max-width: 980px) { .user-management-grid { grid-template-columns: 1fr; } }
+
 * {
 	box-sizing: border-box;
 }

@@ -12,10 +12,13 @@ from unittest import skipUnless
 from unittest.mock import MagicMock, patch
 
 from cryptography.fernet import Fernet
+import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from openpyxl import load_workbook
 from PIL import Image as PillowImage
 
@@ -31,6 +34,7 @@ from .models import (
     HelloAssoItem,
     Member,
     MemberDuplicateSuggestion,
+    UserActionToken,
     UserLogin,
 )
 from .services.badge_import_service import BadgeExcelExtraction, BadgeImportService
@@ -42,13 +46,198 @@ from .services.helloasso_service import (
     HelloAssoAPIError,
     HelloAssoDocument,
     HelloAssoService,
-    _DocumentRedirectHandler,
 )
 from .services.member_sync_service import (
     BadgeMemberSyncService,
     FfckMemberSyncService,
     HelloAssoMemberSyncService,
 )
+from .services.user_action_token_service import InvalidActionTokenError, UserActionTokenService
+from .services.user_service import UserService
+
+
+class AdminUserManagementTests(TestCase):
+    def setUp(self):
+        self.User = get_user_model()
+        self.admin = self.User.objects.create_user(
+            username="admin", email="admin@example.com", password="pass1234", is_staff=True
+        )
+        self.member = self.User.objects.create_user(
+            username="member", email="member@example.com", password="pass1234"
+        )
+
+    def _headers_for(self, user):
+        return {"HTTP_AUTHORIZATION": f"Bearer {create_user_token(user)}"}
+
+    @override_settings(
+        API_AUTH_ENFORCED=True, API_AUTH_TOKEN="", FRONTEND_URL="https://app.example.test"
+    )
+    def test_admin_creates_unusable_account_and_setup_link(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/admin/users/",
+                data={"email": "new@example.com", "first_name": "New", "last_name": "User"},
+                content_type="application/json",
+                **self._headers_for(self.admin),
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn("token", response.content.decode())
+        user = self.User.objects.get(email="new@example.com")
+        self.assertEqual(user.username, "new.user")
+        self.assertFalse(user.has_usable_password())
+        token = UserActionToken.objects.get(user=user, action="set_password")
+        self.assertEqual(len(token.token_hash), 64)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertNotIn(token.token_hash, mail.outbox[0].body)
+        self.assertIn("Votre identifiant : new.user", mail.outbox[0].body)
+        self.assertIn(
+            timezone.localtime(token.expires_at).strftime("%d/%m/%Y à %H:%M"), mail.outbox[0].body
+        )
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_admin_creates_unique_username_from_names(self):
+        self.User.objects.create_user(username="jean.dupont", email="existing@example.com")
+        response = self.client.post(
+            "/api/admin/users/",
+            data={"email": "new@example.com", "first_name": "Jean", "last_name": "Dupont"},
+            content_type="application/json",
+            **self._headers_for(self.admin),
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.User.objects.get(email="new@example.com").username, "jean.dupont.2")
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_admin_requires_names_for_generated_username(self):
+        response = self.client.post(
+            "/api/admin/users/",
+            data={"email": "new@example.com", "first_name": "Jean"},
+            content_type="application/json",
+            **self._headers_for(self.admin),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_admin_endpoints_require_staff_user(self):
+        self.assertEqual(self.client.get("/api/admin/users/").status_code, 401)
+        self.assertEqual(
+            self.client.get("/api/admin/users/", **self._headers_for(self.member)).status_code, 403
+        )
+        self.assertEqual(
+            self.client.get("/api/admin/users/", **self._headers_for(self.admin)).status_code, 200
+        )
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_admin_user_list_does_not_query_tokens_per_user(self):
+        self.User.objects.create_user(
+            username="other", email="other@example.com", password="pass1234"
+        )
+
+        with self.assertNumQueries(3):
+            response = self.client.get("/api/admin/users/", **self._headers_for(self.admin))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["users"]), 3)
+
+    @override_settings(
+        API_AUTH_ENFORCED=True, API_AUTH_TOKEN="", FRONTEND_URL="https://app.example.test"
+    )
+    def test_resending_setup_invalidates_previous_token(self):
+        user = self.User.objects.create_user(username="pending", email="pending@example.com")
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
+        first, raw_first = UserActionTokenService.create(user, "set_password")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/admin/users/{user.id}/password-setup/",
+                data={},
+                content_type="application/json",
+                **self._headers_for(self.admin),
+            )
+        self.assertEqual(response.status_code, 200)
+        first.refresh_from_db()
+        self.assertIsNotNone(first.invalidated_at)
+        with self.assertRaises(InvalidActionTokenError):
+            UserActionTokenService.set_password(raw_first, "A-secure-password-123")
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_set_password_invalidates_existing_session_token(self):
+        user = self.User.objects.create_user(username="pending", email="pending@example.com")
+        session_token = create_user_token(user)
+        _, raw_token = UserActionTokenService.create(user, "password_reset")
+
+        response = self.client.post(
+            "/api/auth/set-password/",
+            data={
+                "token": raw_token,
+                "password": "A-secure-password-123",
+                "password_confirmation": "A-secure-password-123",
+            },
+            content_type="application/json",
+            HTTP_COOKIE=f"api_token={session_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.cookies["api_token"]["max-age"], 0)
+        self.assertEqual(
+            self.client.get(
+                "/api/campaigns/", HTTP_AUTHORIZATION=f"Bearer {session_token}"
+            ).status_code,
+            401,
+        )
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    def test_set_password_requires_at_least_sixteen_characters(self):
+        user = self.User.objects.create_user(username="pending", email="pending@example.com")
+        _, raw_token = UserActionTokenService.create(user, "password_reset")
+
+        response = self.client.post(
+            "/api/auth/set-password/",
+            data={
+                "token": raw_token,
+                "password": "A-secure-pass12",
+                "password_confirmation": "A-secure-pass12",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("at least 16 characters", response.json()["error"])
+
+    @override_settings(API_AUTH_ENFORCED=True, API_AUTH_TOKEN="")
+    @patch("api.services.user_service.send_mail", side_effect=OSError("SMTP unavailable"))
+    def test_email_failure_keeps_the_existing_reset_link_valid(self, _send_mail):
+        first, raw_first = UserActionTokenService.create(
+            self.member, UserActionToken.ACTION_PASSWORD_RESET
+        )
+
+        response = self.client.post(
+            f"/api/admin/users/{self.member.id}/password-reset/",
+            data={},
+            content_type="application/json",
+            **self._headers_for(self.admin),
+        )
+
+        self.assertEqual(response.status_code, 503)
+        first.refresh_from_db()
+        self.assertIsNone(first.invalidated_at)
+        self.assertEqual(
+            UserActionToken.objects.filter(
+                user=self.member,
+                action=UserActionToken.ACTION_PASSWORD_RESET,
+                invalidated_at__isnull=True,
+            ).count(),
+            1,
+        )
+        UserActionTokenService.set_password(raw_first, "A-secure-password-123")
+
+    @override_settings(FRONTEND_URL="https://app.example.test")
+    def test_password_links_keep_tokens_out_of_request_urls(self):
+        url = UserService._password_url("a token/with reserved chars")
+
+        self.assertEqual(
+            url,
+            "https://app.example.test/set-password#token=a+token%2Fwith+reserved+chars",
+        )
 
 
 def build_test_xlsx(rows: list[list[str]]) -> bytes:
@@ -361,9 +550,11 @@ class HelloAssoServiceTests(TestCase):
         )
         called_urls = []
 
-        def fake_request_json(request):
-            called_urls.append(request.full_url)
-            parsed = urllib.parse.urlparse(request.full_url)
+        def fake_request_json(method, url, *, headers=None):
+            self.assertEqual(method, "GET")
+            self.assertEqual(headers["Authorization"], "Bearer token")
+            called_urls.append(url)
+            parsed = urllib.parse.urlparse(url)
             query = urllib.parse.parse_qs(parsed.query)
             page_index = int((query.get("pageIndex") or ["1"])[0])
 
@@ -429,62 +620,41 @@ class HelloAssoServiceTests(TestCase):
     def test_download_document_uses_bearer_token_for_helloasso_url(self):
         service = HelloAssoService(client_id="client-id", client_secret="client-secret")
         response = MagicMock()
-        response.read.return_value = b"document"
-        response.headers.get_content_type.return_value = "application/pdf"
-        response.headers.get.return_value = 'attachment; filename="document.pdf"'
-        response.__enter__.return_value = response
-        opener = MagicMock()
-        opener.open.return_value = response
+        response.content = b"document"
+        response.headers.get.side_effect = lambda name, default="": {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="document.pdf"',
+        }.get(name, default)
+        response.raise_for_status.return_value = None
 
         with (
             patch.object(service, "get_access_token", return_value="access-token"),
             patch(
-                "api.services.helloasso_service.urllib.request.build_opener",
-                return_value=opener,
-            ),
+                "api.services.helloasso_service.requests.get", return_value=response
+            ) as requests_get,
         ):
-            document = service.download_document("https://uploads.helloasso.com/document.pdf")
+            document = service.download_document(
+                "https://docs.helloasso.com/customFieldsAnswer/123"
+            )
 
-        request = opener.open.call_args.args[0]
-        self.assertEqual(request.get_header("Authorization"), "Bearer access-token")
+        self.assertEqual(
+            requests_get.call_args.kwargs["headers"]["Authorization"], "Bearer access-token"
+        )
         self.assertEqual(document.content, b"document")
         self.assertEqual(document.content_type, "application/pdf")
 
-    def test_document_redirect_removes_token_for_external_storage(self):
-        request = urllib.request.Request(
-            "https://docs.helloasso.com/customFieldsAnswer/123",
-            headers={"Authorization": "Bearer access-token"},
-        )
-
-        redirected_request = _DocumentRedirectHandler().redirect_request(
-            request,
-            None,
-            302,
-            "Found",
-            {},
-            "https://storage.example.test/signed-photo",
-        )
-
-        self.assertIsNotNone(redirected_request)
-        self.assertIsNone(redirected_request.get_header("Authorization"))
-
     def test_download_document_explains_missing_organization_admin_role(self):
         service = HelloAssoService(client_id="client-id", client_secret="client-secret")
-        error = urllib.error.HTTPError(
-            "https://docs.helloasso.com/customFieldsAnswer/123",
-            403,
-            "Forbidden",
-            {},
-            None,
-        )
-        opener = MagicMock()
-        opener.open.side_effect = error
+        response = MagicMock()
+        response.status_code = 403
+        error = requests.HTTPError(response=response)
+        response.raise_for_status.side_effect = error
 
         with (
             patch.object(service, "get_access_token", return_value="access-token"),
             patch(
-                "api.services.helloasso_service.urllib.request.build_opener",
-                return_value=opener,
+                "api.services.helloasso_service.requests.get",
+                return_value=response,
             ),
         ):
             with self.assertRaisesRegex(HelloAssoAPIError, "OrganizationAdmin"):
@@ -1803,7 +1973,9 @@ class CampaignMemberCertificatFileViewTests(AuthenticatedApiTestCase):
 
     @override_settings(HELLOASSO_CLIENT_ID="client", HELLOASSO_CLIENT_SECRET="secret")
     @patch("api.views.HelloAssoService")
-    def test_document_download_uses_client_credentials_without_partner_token(self, helloasso_service):
+    def test_document_download_uses_client_credentials_without_partner_token(
+        self, helloasso_service
+    ):
         self.member.photo = "https://uploads.helloasso.com/photo.jpg"
         self.member.save(update_fields=["photo"])
         helloasso_service.return_value.download_document.return_value = HelloAssoDocument(

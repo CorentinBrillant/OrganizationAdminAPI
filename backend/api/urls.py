@@ -1,11 +1,17 @@
 from django.urls import path
 
-from .auth import require_api_token
+from .auth import require_admin_user, require_api_token
 from .views import (
     auth_change_password,
     auth_login,
     auth_logout,
+    auth_password_reset_request,
     auth_session,
+    auth_set_password,
+    admin_user_detail,
+    admin_user_password_reset,
+    admin_user_password_setup,
+    admin_users,
     badge_export_orders,
     badge_import_campaign,
     badge_latest_rows,
@@ -43,11 +49,35 @@ def _protected(view):
     return require_api_token(view)
 
 
+def _admin_protected(view):
+    return require_api_token(require_admin_user(view))
+
+
 urlpatterns = [
     path("auth/login/", auth_login, name="auth-login"),
     path("auth/session/", _protected(auth_session), name="auth-session"),
     path("auth/password/", _protected(auth_change_password), name="auth-change-password"),
     path("auth/logout/", _protected(auth_logout), name="auth-logout"),
+    path("auth/set-password/", auth_set_password, name="auth-set-password"),
+    path(
+        "auth/password-reset-request/",
+        auth_password_reset_request,
+        name="auth-password-reset-request",
+    ),
+    path("admin/users/", _admin_protected(admin_users), name="admin-users"),
+    path(
+        "admin/users/<int:user_id>/", _admin_protected(admin_user_detail), name="admin-user-detail"
+    ),
+    path(
+        "admin/users/<int:user_id>/password-setup/",
+        _admin_protected(admin_user_password_setup),
+        name="admin-user-password-setup",
+    ),
+    path(
+        "admin/users/<int:user_id>/password-reset/",
+        _admin_protected(admin_user_password_reset),
+        name="admin-user-password-reset",
+    ),
     path("campaigns/", _protected(campaigns), name="campaigns"),
     path(
         "campaigns/<int:campaign_id>/settings/",

@@ -1,6 +1,6 @@
-from functools import wraps
 import hashlib
 import secrets
+from functools import wraps
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -119,5 +119,18 @@ def require_api_token(view_func):
             return view_func(request, *args, **kwargs)
 
         return JsonResponse({"error": "Unauthorized."}, status=401)
+
+    return _wrapped
+
+
+def require_admin_user(view_func):
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        user = getattr(request, "auth_user", None)
+        if getattr(request, "auth_via", "") != "user_token" or user is None:
+            return JsonResponse({"error": "Unauthorized."}, status=401)
+        if not user.is_staff:
+            return JsonResponse({"error": "Forbidden."}, status=403)
+        return view_func(request, *args, **kwargs)
 
     return _wrapped

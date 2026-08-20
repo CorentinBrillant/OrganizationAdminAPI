@@ -211,7 +211,7 @@ class HelloAssoService:
                 content_disposition=response.headers.get("Content-Disposition", ""),
             )
         except requests.HTTPError as exc:
-            status_code = exc.response.status_code if exc.response else None
+            status_code = exc.response.status_code if exc.response is not None else None
             if status_code == 403 and hostname == "docs.helloasso.com":
                 raise HelloAssoAPIError(
                     "HelloAsso denied access to this uploaded document. "
