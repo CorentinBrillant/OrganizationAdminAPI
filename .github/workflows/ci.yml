@@ -135,6 +135,9 @@ jobs:
           DB_PASSWORD=organization_admin
           DB_HOST=db
           DB_PORT=5432
+          DJANGO_EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend
+          EMAIL_HOST_USER=ci@example.test
+          EMAIL_HOST_PASSWORD=ci-placeholder-password
           VITE_API_AUTH_TOKEN=
           EOF
 
@@ -156,6 +159,10 @@ jobs:
           GUNICORN_WORKERS=2
           GUNICORN_THREADS=2
           GUNICORN_TIMEOUT=60
+          FRONTEND_URL=https://ci.example.test
+          DJANGO_EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend
+          EMAIL_HOST_USER=ci@example.test
+          EMAIL_HOST_PASSWORD=ci-placeholder-password
           VITE_API_AUTH_TOKEN=
           EOF
 
