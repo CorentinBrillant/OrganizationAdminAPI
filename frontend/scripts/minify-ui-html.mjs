@@ -5,8 +5,8 @@ import { transform as transformJs } from "esbuild";
 
 const uiDistDir = resolve(process.cwd(), "dist", "ui");
 
-const INLINE_STYLE_REGEX = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
-const INLINE_SCRIPT_REGEX = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const INLINE_STYLE_REGEX = /<style\b([^>]*)>([\s\S]*?)<\/style\b[^>]*>/gi;
+const INLINE_SCRIPT_REGEX = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
 const HTML_COMMENT_REGEX = /<!--[\s\S]*?-->/g;
 
 function isConditionalComment(comment) {
